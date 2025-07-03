@@ -54,7 +54,6 @@ async def callback(client, call):
         await call.message.reply(f"📄 لیست اکانت‌ها:\n\n{msg}")
 
     elif data == "add":
-        # اگر قبلا منتظر شماره است پیام تکراری نده
         if user_states.get(call.from_user.id) == "awaiting_phone":
             await call.message.reply("⏳ در انتظار دریافت شماره هستم، لطفاً شماره را وارد کنید.")
             return
@@ -75,7 +74,6 @@ async def handle_text(client, message):
     if message.from_user.id != OWNER_ID:
         return
 
-    # جلوگیری از اجرای این هندلر روی دستورات مانند /start و غیره
     if message.text.startswith("/"):
         return
 
@@ -96,7 +94,8 @@ async def handle_text(client, message):
                 session_name, api_id=API_ID, api_hash=API_HASH, in_memory=True
             )
             await temp_data[message.from_user.id]["client"].connect()
-            await temp_data[message.from_user.id]["client"].send_code(phone)
+            result = await temp_data[message.from_user.id]["client"].send_code(phone)
+            temp_data[message.from_user.id]["phone_code_hash"] = result.phone_code_hash
             await message.reply("📨 کد تأیید به تلگرام ارسال شد. لطفاً کد را وارد کنید.")
         except Exception as e:
             await message.reply(f"❌ ارسال کد شکست خورد:\n{e}")
@@ -104,7 +103,8 @@ async def handle_text(client, message):
             temp_data.pop(message.from_user.id, None)
 
     elif state == "awaiting_code":
-        code = message.text.strip()
+        raw_code = message.text.strip()
+        code = "".join(filter(str.isdigit, raw_code))  # پاکسازی خط تیره، فاصله و...
         data = temp_data.get(message.from_user.id)
         if not data:
             await message.reply("❌ مشکلی پیش آمده. لطفاً دوباره تلاش کنید.")
@@ -114,10 +114,11 @@ async def handle_text(client, message):
         phone = data["phone"]
         session_name = data["session_name"]
         client = data["client"]
+        phone_code_hash = data["phone_code_hash"]
 
         try:
-            await client.sign_in(phone_number=phone, phone_code=code)
-            await client.export_session_string()  # باعث ذخیره session میشه
+            await client.sign_in(phone_number=phone, phone_code_hash=phone_code_hash, phone_code=code)
+            await client.export_session_string()
             await client.disconnect()
 
             helpers = load_helpers()
