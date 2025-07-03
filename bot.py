@@ -14,7 +14,6 @@ HELPERS_FILE = "helpers.json"
 user_states = {}
 temp_data = {}
 
-# ایجاد فایل helpers.json اگر وجود نداشته باشد
 if not os.path.exists(HELPERS_FILE):
     with open(HELPERS_FILE, "w") as f:
         json.dump([], f)
@@ -51,18 +50,13 @@ async def start(client, message):
 async def callback(client, call):
     if call.from_user.id != OWNER_ID:
         return
+
     data = call.data
 
-    # مدیریت صفحه بندی لیست اکانت‌ها
     if data.startswith("list_") or data == "list":
-        page = 1
-        if data.startswith("list_"):
-            try:
-                page = int(data.split("_")[1])
-            except:
-                page = 1
-
+        page = int(data.split("_")[1]) if "_" in data else 1
         helpers = load_helpers()
+
         if not helpers:
             await call.message.edit_text("⚠️ هنوز هیچ اکانتی اضافه نشده.")
             return
@@ -78,65 +72,57 @@ async def callback(client, call):
             text += f"<b>{i}.</b> <code>{phone}</code>\n"
             buttons.append([InlineKeyboardButton(f"❌ حذف {i}", callback_data=f"del_{phone}")])
 
-        nav_buttons = []
+        nav = []
         if page > 1:
-            nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"list_{page - 1}"))
+            nav.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"list_{page - 1}"))
         if page < total_pages:
-            nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"list_{page + 1}"))
+            nav.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"list_{page + 1}"))
 
-        if nav_buttons:
-            buttons.append(nav_buttons)
-        buttons.append([InlineKeyboardButton("🔄 بروزرسانی لیست", callback_data=f"list_{page}")])
+        if nav:
+            buttons.append(nav)
+        buttons.append([InlineKeyboardButton("🔄 بروزرسانی", callback_data=f"list_{page}")])
 
-        await call.message.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="html"
-        )
+        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="html")
         return
 
     elif data.startswith("del_"):
         phone = data.split("del_")[1]
         helpers = load_helpers()
-
         if phone in helpers:
             helpers.remove(phone)
             save_helpers(helpers)
-            await call.message.edit_text(f"☑️ اکانت <code>{phone}</code> با موفقیت حذف شد.", parse_mode="html")
+            await call.message.edit_text(f"☑️ اکانت <code>{phone}</code> حذف شد.", parse_mode="html")
         else:
-            await call.message.answer("⚠️ این شماره در لیست یافت نشد.")
+            await call.message.answer("⚠️ این شماره در لیست نیست.")
         return
 
     elif data == "add":
         if user_states.get(call.from_user.id) == "awaiting_phone":
-            await call.message.answer("⏳ در انتظار دریافت شماره هستم، لطفاً شماره را وارد کنید.")
+            await call.message.answer("⏳ لطفاً ابتدا شماره قبلی را وارد کنید.")
             return
         user_states[call.from_user.id] = "awaiting_phone"
-        await call.message.answer("➕ لطفاً شماره اکانت را با +98 ارسال کنید.")
+        await call.message.answer("➕ شماره را با +98 بفرست.")
         return
 
     elif data == "stats":
-        await call.message.answer("📊 آمار ارسال‌ها: به‌زودی اضافه می‌شود.")
+        await call.message.answer("📊 آمار: به‌زودی افزوده می‌شود.")
         return
 
     elif data == "help":
-        await call.message.answer("📘 راهنما:\nبا این ربات می‌تونی به کاربران پیام ارسال کنی.")
+        await call.message.answer("📘 با این ربات می‌تونی به کاربران پیام بدی.")
         return
 
     elif data == "about":
-        await call.message.answer("ℹ️ ربات ارسال پیوی ساخته‌شده توسط @mindrobotmc")
+        await call.message.answer("ℹ️ ساخته‌شده توسط @mindrobotmc")
         return
 
     elif data == "attack":
-        await call.message.answer("📩 ارسال پیام به کاربران به‌زودی فعال می‌شود.")
+        await call.message.answer("📩 این بخش به‌زودی فعال میشه.")
         return
 
 @bot.on_message(filters.text)
 async def handle_text(client, message):
-    if message.from_user.id != OWNER_ID:
-        return
-
-    if message.text.startswith("/"):
+    if message.from_user.id != OWNER_ID or message.text.startswith("/"):
         return
 
     state = user_states.get(message.from_user.id)
@@ -144,48 +130,51 @@ async def handle_text(client, message):
     if state == "awaiting_phone":
         phone = message.text.strip()
         if not phone.startswith("+98"):
-            await message.reply("❌ لطفاً شماره را با +98 شروع کنید.")
+            await message.reply("❌ لطفاً شماره با +98 شروع شود.")
             return
 
         session_name = phone.replace("+", "")
-        temp_data[message.from_user.id] = {"phone": phone, "session_name": session_name}
-        user_states[message.from_user.id] = "awaiting_code"
-
         try:
-            temp_data[message.from_user.id]["client"] = Client(
-                session_name, api_id=API_ID, api_hash=API_HASH, in_memory=True
-            )
-            await temp_data[message.from_user.id]["client"].connect()
-            await temp_data[message.from_user.id]["client"].send_code(phone)
-            await message.reply("📨 کد تأیید به تلگرام ارسال شد. لطفاً کد را وارد کنید.")
+            tg_client = Client(session_name, api_id=API_ID, api_hash=API_HASH, in_memory=True)
+            await tg_client.connect()
+            sent = await tg_client.send_code(phone)
+            temp_data[message.from_user.id] = {
+                "phone": phone,
+                "client": tg_client,
+                "phone_code_hash": sent.phone_code_hash
+            }
+            user_states[message.from_user.id] = "awaiting_code"
+            await message.reply("📨 کد ارسال شد. لطفاً کد را وارد کنید (مثال: 45-234).")
         except Exception as e:
-            await message.reply(f"❌ ارسال کد شکست خورد:\n{e}")
+            await message.reply(f"❌ خطا در ارسال کد:\n{e}")
             user_states.pop(message.from_user.id, None)
-            temp_data.pop(message.from_user.id, None)
+        return
 
     elif state == "awaiting_code":
-        code = message.text.strip()
+        raw_code = message.text.strip()
+        code = "".join(filter(str.isdigit, raw_code))  # پاک‌سازی خط فاصله و سایر
         data = temp_data.get(message.from_user.id)
+
         if not data:
-            await message.reply("❌ مشکلی پیش آمده. لطفاً دوباره تلاش کنید.")
+            await message.reply("❌ مشکلی پیش اومده. از نو امتحان کن.")
             user_states.pop(message.from_user.id, None)
             return
 
         phone = data["phone"]
-        session_name = data["session_name"]
-        client = data["client"]
+        phone_code_hash = data["phone_code_hash"]
+        tg_client = data["client"]
 
         try:
-            await client.sign_in(phone_number=phone, phone_code=code)
-            await client.export_session_string()  # باعث ذخیره session میشه
-            await client.disconnect()
+            await tg_client.sign_in(phone_number=phone, phone_code_hash=phone_code_hash, phone_code=code)
+            await tg_client.export_session_string()
+            await tg_client.disconnect()
 
             helpers = load_helpers()
             if phone not in helpers:
                 helpers.append(phone)
                 save_helpers(helpers)
 
-            await message.reply(f"✅ اکانت {phone} با موفقیت اضافه شد و ذخیره شد.")
+            await message.reply(f"✅ اکانت {phone} وارد شد و ذخیره شد.")
         except Exception as e:
             await message.reply(f"❌ ورود ناموفق:\n{e}")
         finally:
