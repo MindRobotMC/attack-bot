@@ -46,13 +46,20 @@ async def callback(client, call):
     if call.from_user.id != OWNER_ID:
         return
     data = call.data
+
     if data == "list":
         helpers = load_helpers()
         msg = "\n".join(helpers) if helpers else "❌ اکانتی ثبت نشده."
         await call.message.reply(f"📄 لیست اکانت‌ها:\n\n{msg}")
+
     elif data == "add":
+        # جلوگیری از تکرار پیام درخواست شماره
+        if user_states.get(call.from_user.id) == "awaiting_phone":
+            await call.message.reply("⏳ در انتظار دریافت شماره هستم، لطفاً شماره را وارد کنید.")
+            return
         user_states[call.from_user.id] = "awaiting_phone"
         await call.message.reply("➕ لطفاً شماره اکانت را با +98 ارسال کنید.")
+
     elif data == "stats":
         await call.message.reply("📊 آمار ارسال‌ها: به‌زودی اضافه می‌شود.")
     elif data == "help":
@@ -104,7 +111,7 @@ async def handle_text(client, message):
 
         try:
             await client.sign_in(phone_number=phone, phone_code=code)
-            await client.export_session_string()  # باعث میشه فایل session ذخیره بشه
+            await client.export_session_string()  # باعث ذخیره session میشه
             await client.disconnect()
 
             helpers = load_helpers()
