@@ -14,6 +14,7 @@ HELPERS_FILE = "helpers.json"
 user_states = {}
 temp_data = {}
 
+# ایجاد فایل helpers.json اگر وجود نداشته باشد
 if not os.path.exists(HELPERS_FILE):
     with open(HELPERS_FILE, "w") as f:
         json.dump([], f)
@@ -53,7 +54,7 @@ async def callback(client, call):
         await call.message.reply(f"📄 لیست اکانت‌ها:\n\n{msg}")
 
     elif data == "add":
-        # جلوگیری از تکرار پیام درخواست شماره
+        # اگر قبلا منتظر شماره است پیام تکراری نده
         if user_states.get(call.from_user.id) == "awaiting_phone":
             await call.message.reply("⏳ در انتظار دریافت شماره هستم، لطفاً شماره را وارد کنید.")
             return
@@ -69,9 +70,13 @@ async def callback(client, call):
     elif data == "attack":
         await call.message.reply("📩 ارسال پیام به کاربران به‌زودی فعال می‌شود.")
 
-@bot.on_message(filters.text & ~filters.command("start"))
+@bot.on_message(filters.text)
 async def handle_text(client, message):
     if message.from_user.id != OWNER_ID:
+        return
+
+    # جلوگیری از اجرای این هندلر روی دستورات مانند /start و غیره
+    if message.text.startswith("/"):
         return
 
     state = user_states.get(message.from_user.id)
@@ -96,6 +101,7 @@ async def handle_text(client, message):
         except Exception as e:
             await message.reply(f"❌ ارسال کد شکست خورد:\n{e}")
             user_states.pop(message.from_user.id, None)
+            temp_data.pop(message.from_user.id, None)
 
     elif state == "awaiting_code":
         code = message.text.strip()
