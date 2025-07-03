@@ -38,7 +38,7 @@ async def start(client, message):
         return
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📩 اتک", callback_data="attack")],
-        [InlineKeyboardButton("📄 لیست اکانت‌ها", callback_data="list")],
+        [InlineKeyboardButton("📄 لیست اکانت‌ها", callback_data="list_1")],
         [InlineKeyboardButton("➕ اضافه کردن اکانت", callback_data="add")],
         [InlineKeyboardButton("📊 آمار ارسال‌ها", callback_data="stats")],
         [InlineKeyboardButton("📘 راهنما", callback_data="help")],
@@ -53,9 +53,10 @@ async def callback(client, call):
         return
     data = call.data
 
-    if data.startswith("list") or data.startswith("page_"):
+    # مدیریت صفحه بندی لیست اکانت‌ها
+    if data.startswith("list_") or data == "list":
         page = 1
-        if data.startswith("page_"):
+        if data.startswith("list_"):
             try:
                 page = int(data.split("_")[1])
             except:
@@ -63,7 +64,7 @@ async def callback(client, call):
 
         helpers = load_helpers()
         if not helpers:
-            await call.message.reply("⚠️ هنوز هیچ اکانتی اضافه نشده.")
+            await call.message.edit_text("⚠️ هنوز هیچ اکانتی اضافه نشده.")
             return
 
         per_page = 5
@@ -79,19 +80,20 @@ async def callback(client, call):
 
         nav_buttons = []
         if page > 1:
-            nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"page_{page - 1}"))
+            nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"list_{page - 1}"))
         if page < total_pages:
-            nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"page_{page + 1}"))
+            nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"list_{page + 1}"))
 
         if nav_buttons:
             buttons.append(nav_buttons)
-        buttons.append([InlineKeyboardButton("🔄 بروزرسانی لیست", callback_data="list")])
+        buttons.append([InlineKeyboardButton("🔄 بروزرسانی لیست", callback_data=f"list_{page}")])
 
-        await call.message.reply(
+        await call.message.edit_text(
             text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode="html"
         )
+        return
 
     elif data.startswith("del_"):
         phone = data.split("del_")[1]
@@ -100,28 +102,34 @@ async def callback(client, call):
         if phone in helpers:
             helpers.remove(phone)
             save_helpers(helpers)
-            await call.message.reply(f"☑️ اکانت <code>{phone}</code> با موفقیت حذف شد.", parse_mode="html")
+            await call.message.edit_text(f"☑️ اکانت <code>{phone}</code> با موفقیت حذف شد.", parse_mode="html")
         else:
-            await call.message.reply("⚠️ این شماره در لیست یافت نشد.")
+            await call.message.answer("⚠️ این شماره در لیست یافت نشد.")
+        return
 
     elif data == "add":
         if user_states.get(call.from_user.id) == "awaiting_phone":
-            await call.message.reply("⏳ در انتظار دریافت شماره هستم، لطفاً شماره را وارد کنید.")
+            await call.message.answer("⏳ در انتظار دریافت شماره هستم، لطفاً شماره را وارد کنید.")
             return
         user_states[call.from_user.id] = "awaiting_phone"
-        await call.message.reply("➕ لطفاً شماره اکانت را با +98 ارسال کنید.")
+        await call.message.answer("➕ لطفاً شماره اکانت را با +98 ارسال کنید.")
+        return
 
     elif data == "stats":
-        await call.message.reply("📊 آمار ارسال‌ها: به‌زودی اضافه می‌شود.")
+        await call.message.answer("📊 آمار ارسال‌ها: به‌زودی اضافه می‌شود.")
+        return
 
     elif data == "help":
-        await call.message.reply("📘 راهنما:\nبا این ربات می‌تونی به کاربران پیام ارسال کنی.")
+        await call.message.answer("📘 راهنما:\nبا این ربات می‌تونی به کاربران پیام ارسال کنی.")
+        return
 
     elif data == "about":
-        await call.message.reply("ℹ️ ربات ارسال پیوی ساخته‌شده توسط @mindrobotmc")
+        await call.message.answer("ℹ️ ربات ارسال پیوی ساخته‌شده توسط @mindrobotmc")
+        return
 
     elif data == "attack":
-        await call.message.reply("📩 ارسال پیام به کاربران به‌زودی فعال می‌شود.")
+        await call.message.answer("📩 ارسال پیام به کاربران به‌زودی فعال می‌شود.")
+        return
 
 @bot.on_message(filters.text)
 async def handle_text(client, message):
