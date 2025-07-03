@@ -6,12 +6,13 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 BOT_TOKEN = "8032544795:AAF6uK-SKxG5fzAWSUTRauqXor4YG7013Jk"
 API_ID = 29698707
 API_HASH = "22b012816bcf16d58d826e6e3606a273"
-OWNER_ID = 7608419661  # فقط شما مجاز هستید
+OWNER_ID = 7608419661
 
-bot = Client("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
+bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 HELPERS_FILE = "helpers.json"
-user_states = {}  # وضعیت کاربران
+user_states = {}
+temp_data = {}
 
 if not os.path.exists(HELPERS_FILE):
     with open(HELPERS_FILE, "w") as f:
@@ -61,23 +62,61 @@ async def callback(client, call):
     elif data == "attack":
         await call.message.reply("📩 ارسال پیام به کاربران به‌زودی فعال می‌شود.")
 
-@bot.on_message(filters.text & ~filters.command(["start"]))
+@bot.on_message(filters.text & ~filters.command("start"))
 async def handle_text(client, message):
     if message.from_user.id != OWNER_ID:
         return
+
     state = user_states.get(message.from_user.id)
+
     if state == "awaiting_phone":
         phone = message.text.strip()
-        if not phone.startswith("+"):
+        if not phone.startswith("+98"):
             await message.reply("❌ لطفاً شماره را با +98 شروع کنید.")
             return
-        helpers = load_helpers()
-        if phone in helpers:
-            await message.reply("⚠️ این شماره قبلاً اضافه شده است.")
-        else:
-            helpers.append(phone)
-            save_helpers(helpers)
-            await message.reply("✅ شماره ذخیره شد. حالا فایل `add_account.py` را اجرا کن و کد را بزن.")
-        user_states.pop(message.from_user.id)
+
+        session_name = phone.replace("+", "")
+        temp_data[message.from_user.id] = {"phone": phone, "session_name": session_name}
+        user_states[message.from_user.id] = "awaiting_code"
+
+        try:
+            temp_data[message.from_user.id]["client"] = Client(
+                session_name, api_id=API_ID, api_hash=API_HASH, in_memory=True
+            )
+            await temp_data[message.from_user.id]["client"].connect()
+            await temp_data[message.from_user.id]["client"].send_code(phone)
+            await message.reply("📨 کد تأیید به تلگرام ارسال شد. لطفاً کد را وارد کنید.")
+        except Exception as e:
+            await message.reply(f"❌ ارسال کد شکست خورد:\n{e}")
+            user_states.pop(message.from_user.id, None)
+
+    elif state == "awaiting_code":
+        code = message.text.strip()
+        data = temp_data.get(message.from_user.id)
+        if not data:
+            await message.reply("❌ مشکلی پیش آمده. لطفاً دوباره تلاش کنید.")
+            user_states.pop(message.from_user.id, None)
+            return
+
+        phone = data["phone"]
+        session_name = data["session_name"]
+        client = data["client"]
+
+        try:
+            await client.sign_in(phone_number=phone, phone_code=code)
+            await client.export_session_string()  # باعث میشه فایل session ذخیره بشه
+            await client.disconnect()
+
+            helpers = load_helpers()
+            if phone not in helpers:
+                helpers.append(phone)
+                save_helpers(helpers)
+
+            await message.reply(f"✅ اکانت {phone} با موفقیت اضافه شد و ذخیره شد.")
+        except Exception as e:
+            await message.reply(f"❌ ورود ناموفق:\n{e}")
+        finally:
+            user_states.pop(message.from_user.id, None)
+            temp_data.pop(message.from_user.id, None)
 
 bot.run()
