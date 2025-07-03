@@ -83,7 +83,6 @@ async def callback(client, call):
 
     data = call.data
 
-    # درباره مجموعه MC
     if data == "about":
         about_text = (
             "🤖 ربات MC - مدیریت پیشرفته اکانت‌ها و اتک\n"
@@ -94,7 +93,6 @@ async def callback(client, call):
         await call.answer()
         return
 
-    # راهنما با لینک کانال
     if data == "help":
         await call.message.edit_text(
             "📘 راهنما:\n"
@@ -105,7 +103,6 @@ async def callback(client, call):
         await call.answer()
         return
 
-    # آمار ارسال‌ها
     if data == "stats":
         stats = load_json(STATS_FILE)
         today = get_today_str()
@@ -129,7 +126,6 @@ async def callback(client, call):
         await call.answer()
         return
 
-    # لیست اکانت‌ها
     if data.startswith("list_") or data == "list":
         page = 1
         if "_" in data:
@@ -181,7 +177,6 @@ async def callback(client, call):
         await call.answer()
         return
 
-    # حذف اکانت
     if data.startswith("del_"):
         phone = data.split("_", 1)[1]
         helpers = load_json(HELPERS_FILE)
@@ -191,7 +186,6 @@ async def callback(client, call):
         await call.message.edit_text("لیست اکانت‌ها بروزرسانی شد.", reply_markup=main_menu())
         return
 
-    # اضافه کردن اکانت
     if data == "add":
         if user_states.get(call.from_user.id) == "awaiting_phone":
             await call.answer("⏳ لطفاً ابتدا شماره قبلی را وارد کنید.", show_alert=True)
@@ -201,7 +195,6 @@ async def callback(client, call):
         await bot.send_message(call.from_user.id, "➕ لطفاً شماره اکانت را با +98 ارسال کنید.")
         return
 
-    # منوی اتک
     if data == "attack_menu":
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ اتک زده شده‌ها", callback_data="attack_done")],
@@ -213,7 +206,6 @@ async def callback(client, call):
         await call.answer()
         return
 
-    # نمایش اتک زده شده‌ها
     if data == "attack_done":
         groups = load_json(ATTACK_GROUPS_FILE)
         done = [g for g in groups if g.get("attacked", False)]
@@ -231,7 +223,6 @@ async def callback(client, call):
         await call.answer()
         return
 
-    # نمایش اتک زده نشده‌ها
     if data == "attack_not_done":
         groups = load_json(ATTACK_GROUPS_FILE)
         not_done = [g for g in groups if not g.get("attacked", False)]
@@ -249,7 +240,6 @@ async def callback(client, call):
         await call.answer()
         return
 
-    # ثبت گروه جدید برای اتک
     if data == "attack_add_group":
         if user_states.get(call.from_user.id) == "awaiting_attack_group":
             await call.answer("⏳ لطفاً ابتدا گروه قبلی را وارد کنید.", show_alert=True)
@@ -259,27 +249,29 @@ async def callback(client, call):
         await bot.send_message(call.from_user.id, "➕ لطفاً آیدی گروه یا عنوان گروه جدید را ارسال کنید.")
         return
 
-    # گرفتن لیست یوزرنیم ممبرای ویسکال (مثال ساده - فقط پاسخ آزمایشی)
     if data == "get_voicecall_usernames":
-        # این بخش رو خودت باید کدنویسی بکنی طبق نیازت - اینجا نمونه ساده است
-        await call.message.edit_text("🆕 دریافت لیست یوزرنیم ممبرای ویسکال:\n(نمونه)\nuser1\nuser2\nuser3", reply_markup=main_menu())
+        # نمونه ساده - برای توسعه خودتان
+        await call.message.edit_text(
+            "🆕 دریافت لیست یوزرنیم ممبرای ویسکال:\n(نمونه)\nuser1\nuser2\nuser3",
+            reply_markup=main_menu()
+        )
         await call.answer()
         return
 
-    # گرفتن لیست یوزرنیم اعضای چت فعال (مثال ساده - فقط پاسخ آزمایشی)
     if data == "get_activechat_usernames":
-        # این بخش رو خودت باید کدنویسی بکنی طبق نیازت - اینجا نمونه ساده است
-        await call.message.edit_text("🆕 دریافت لیست یوزرنیم اعضای چت فعال:\n(نمونه)\nuserA\nuserB\nuserC", reply_markup=main_menu())
+        # نمونه ساده - برای توسعه خودتان
+        await call.message.edit_text(
+            "🆕 دریافت لیست یوزرنیم اعضای چت فعال:\n(نمونه)\nuserA\nuserB\nuserC",
+            reply_markup=main_menu()
+        )
         await call.answer()
         return
 
-    # برگشت به منوی اصلی
     if data == "main":
         await call.message.edit_text("🏠 منوی اصلی", reply_markup=main_menu())
         await call.answer()
         return
 
-    # پاسخ دیفالت برای کال‌بک‌ها بدون عملیات
     await call.answer()
 
 # --- دریافت متن برای اضافه کردن اکانت و ثبت گروه اتک ---
@@ -290,7 +282,6 @@ async def handle_text(client, message):
 
     state = user_states.get(message.from_user.id)
 
-    # دریافت شماره برای اضافه کردن اکانت
     if state == "awaiting_phone":
         phone = message.text.strip()
         if not phone.startswith("+98"):
@@ -313,7 +304,6 @@ async def handle_text(client, message):
             user_states.pop(message.from_user.id, None)
         return
 
-    # دریافت کد تایید اکانت
     if state == "awaiting_code":
         raw_code = message.text.strip()
         code = "".join(filter(str.isdigit, raw_code))
@@ -329,7 +319,7 @@ async def handle_text(client, message):
 
         try:
             await tg_client.sign_in(phone_number=phone, phone_code_hash=phone_code_hash, phone_code=code)
-            await tg_client.export_session_string()
+            session_string = await tg_client.export_session_string()
             await tg_client.disconnect()
 
             helpers = load_json(HELPERS_FILE)
@@ -342,7 +332,7 @@ async def handle_text(client, message):
                 helpers.append(acc_data)
                 save_json(HELPERS_FILE, helpers)
 
-            await message.reply(f"✅ اکانت {phone} وارد شد و ذخیره شد.")
+            await message.reply(f"✅ اکانت {phone} وارد شد و ذخیره شد.\n\nکد جلسه:\n<code>{session_string}</code>", parse_mode="html")
         except Exception as e:
             await message.reply(f"❌ ورود ناموفق:\n{e}")
         finally:
@@ -350,7 +340,6 @@ async def handle_text(client, message):
             temp_data.pop(message.from_user.id, None)
         return
 
-    # دریافت آیدی یا نام گروه برای ثبت گروه اتک
     if state == "awaiting_attack_group":
         group_text = message.text.strip()
         groups = load_json(ATTACK_GROUPS_FILE)
@@ -370,28 +359,6 @@ async def handle_text(client, message):
         await message.reply(f"✅ گروه جدید ثبت شد:\n{group_text}")
         user_states.pop(message.from_user.id, None)
         return
-
-# --- اجرا و افزایش آمار (شبیه‌سازی ارسال برای مثال) ---
-# هر بار که ارسال موفق انجام شود، باید این تابع را فراخوانی کنید.
-def increment_stats(count=1):
-    stats = load_json(STATS_FILE)
-
-    today = get_today_str()
-    week = get_week_str()
-    month = get_month_str()
-    year = get_year_str()
-
-    stats.setdefault("daily", {})
-    stats.setdefault("weekly", {})
-    stats.setdefault("monthly", {})
-    stats.setdefault("yearly", {})
-
-    stats["daily"][today] = stats["daily"].get(today, 0) + count
-    stats["weekly"][week] = stats["weekly"].get(week, 0) + count
-    stats["monthly"][month] = stats["monthly"].get(month, 0) + count
-    stats["yearly"][year] = stats["yearly"].get(year, 0) + count
-
-    save_json(STATS_FILE, stats)
 
 # --- اجرای ربات ---
 bot.run()
