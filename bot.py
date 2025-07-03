@@ -27,6 +27,11 @@ def save_helpers(helpers):
     with open(HELPERS_FILE, "w") as f:
         json.dump(helpers, f)
 
+def paginate(items, page=1, per_page=5):
+    start = (page - 1) * per_page
+    end = start + per_page
+    return items[start:end], len(items)
+
 @bot.on_message(filters.command("start"))
 async def start(client, message):
     if message.from_user.id != OWNER_ID:
@@ -48,10 +53,56 @@ async def callback(client, call):
         return
     data = call.data
 
-    if data == "list":
+    if data.startswith("list") or data.startswith("page_"):
+        page = 1
+        if data.startswith("page_"):
+            try:
+                page = int(data.split("_")[1])
+            except:
+                page = 1
+
         helpers = load_helpers()
-        msg = "\n".join(helpers) if helpers else "❌ اکانتی ثبت نشده."
-        await call.message.reply(f"📄 لیست اکانت‌ها:\n\n{msg}")
+        if not helpers:
+            await call.message.reply("⚠️ هنوز هیچ اکانتی اضافه نشده.")
+            return
+
+        per_page = 5
+        page_items, total = paginate(helpers, page=page, per_page=per_page)
+        total_pages = (total + per_page - 1) // per_page
+
+        text = f"📄 <b>لیست اکانت‌ها (صفحه {page}/{total_pages}):</b>\n\n"
+        buttons = []
+
+        for i, phone in enumerate(page_items, start=(page - 1) * per_page + 1):
+            text += f"<b>{i}.</b> <code>{phone}</code>\n"
+            buttons.append([InlineKeyboardButton(f"❌ حذف {i}", callback_data=f"del_{phone}")])
+
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"page_{page - 1}"))
+        if page < total_pages:
+            nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"page_{page + 1}"))
+
+        if nav_buttons:
+            buttons.append(nav_buttons)
+        buttons.append([InlineKeyboardButton("🔄 بروزرسانی لیست", callback_data="list")])
+
+        await call.message.reply(
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="html"
+        )
+
+    elif data.startswith("del_"):
+        phone = data.split("del_")[1]
+        helpers = load_helpers()
+
+        if phone in helpers:
+            helpers.remove(phone)
+            save_helpers(helpers)
+            await call.message.reply(f"☑️ اکانت <code>{phone}</code> با موفقیت حذف شد.", parse_mode="html")
+        else:
+            await call.message.reply("⚠️ این شماره در لیست یافت نشد.")
 
     elif data == "add":
         if user_states.get(call.from_user.id) == "awaiting_phone":
@@ -62,10 +113,13 @@ async def callback(client, call):
 
     elif data == "stats":
         await call.message.reply("📊 آمار ارسال‌ها: به‌زودی اضافه می‌شود.")
+
     elif data == "help":
         await call.message.reply("📘 راهنما:\nبا این ربات می‌تونی به کاربران پیام ارسال کنی.")
+
     elif data == "about":
         await call.message.reply("ℹ️ ربات ارسال پیوی ساخته‌شده توسط @mindrobotmc")
+
     elif data == "attack":
         await call.message.reply("📩 ارسال پیام به کاربران به‌زودی فعال می‌شود.")
 
@@ -94,8 +148,7 @@ async def handle_text(client, message):
                 session_name, api_id=API_ID, api_hash=API_HASH, in_memory=True
             )
             await temp_data[message.from_user.id]["client"].connect()
-            result = await temp_data[message.from_user.id]["client"].send_code(phone)
-            temp_data[message.from_user.id]["phone_code_hash"] = result.phone_code_hash
+            await temp_data[message.from_user.id]["client"].send_code(phone)
             await message.reply("📨 کد تأیید به تلگرام ارسال شد. لطفاً کد را وارد کنید.")
         except Exception as e:
             await message.reply(f"❌ ارسال کد شکست خورد:\n{e}")
@@ -103,8 +156,7 @@ async def handle_text(client, message):
             temp_data.pop(message.from_user.id, None)
 
     elif state == "awaiting_code":
-        raw_code = message.text.strip()
-        code = "".join(filter(str.isdigit, raw_code))  # پاکسازی خط تیره، فاصله و...
+        code = message.text.strip()
         data = temp_data.get(message.from_user.id)
         if not data:
             await message.reply("❌ مشکلی پیش آمده. لطفاً دوباره تلاش کنید.")
@@ -114,11 +166,10 @@ async def handle_text(client, message):
         phone = data["phone"]
         session_name = data["session_name"]
         client = data["client"]
-        phone_code_hash = data["phone_code_hash"]
 
         try:
-            await client.sign_in(phone_number=phone, phone_code_hash=phone_code_hash, phone_code=code)
-            await client.export_session_string()
+            await client.sign_in(phone_number=phone, phone_code=code)
+            await client.export_session_string()  # باعث ذخیره session میشه
             await client.disconnect()
 
             helpers = load_helpers()
