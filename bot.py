@@ -3,9 +3,10 @@ import json
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-BOT_TOKEN = os.getenv("8032544795:AAF6uK-SKxG5fzAWSUTRauqXor4YG7013Jk")
-API_ID = int(os.getenv("29698707"))
-API_HASH = os.getenv("22b012816bcf16d58d826e6e3606a273")
+# مقدارها مستقیماً وارد شده‌اند (برای تست و راحتی شما)
+BOT_TOKEN = "8032544795:AAF6uK-SKxG5fzAWSUTRauqXor4YG7013Jk"
+API_ID = 29698707
+API_HASH = "22b012816bcf16d58d826e6e3606a273"
 
 bot = Client("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
 
