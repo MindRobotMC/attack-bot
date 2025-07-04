@@ -107,7 +107,9 @@ async def callback(client, call):
 
     if data == "help":
         await call.message.edit_text(
-            "📘 راهنما:\nبرای آموزش کامل به کانال زیر مراجعه کنید:\nhttps://t.me/+wZVsaT38RHE5YjU8",
+            "📘 راهنما:\n"
+            "برای آموزش کامل به کانال زیر مراجعه کنید:\n"
+            "https://t.me/+wZVsaT38RHE5YjU8",
             reply_markup=main_menu()
         )
         await call.answer()
@@ -193,6 +195,7 @@ async def callback(client, call):
         new_helpers = [acc for acc in helpers if acc.get("phone") != phone]
         save_json(HELPERS_FILE, new_helpers)
         await call.answer(f"اکانت {phone} حذف شد.")
+        # بروزرسانی لیست در همان صفحه
         await call.message.edit_text("لیست اکانت‌ها بروزرسانی شد.", reply_markup=main_menu())
         return
 
@@ -260,6 +263,7 @@ async def callback(client, call):
         return
 
     if data == "get_voicecall_usernames":
+        # نمونه ساده - قابل توسعه
         await call.message.edit_text(
             "🆕 دریافت لیست یوزرنیم ممبرای ویسکال:\n(نمونه)\nuser1\nuser2\nuser3",
             reply_markup=main_menu()
@@ -268,6 +272,7 @@ async def callback(client, call):
         return
 
     if data == "get_activechat_usernames":
+        # نمونه ساده - قابل توسعه
         await call.message.edit_text(
             "🆕 دریافت لیست یوزرنیم اعضای چت فعال:\n(نمونه)\nuserA\nuserB\nuserC",
             reply_markup=main_menu()
@@ -345,10 +350,18 @@ async def handle_text(client, message):
                 parse_mode="html"
             )
         except Exception as e:
-            await message.reply(f"❌ ورود ناموفق:\n{e}")
+            error_msg = str(e)
+            if "PHONE_CODE_EXPIRED" in error_msg:
+                await message.reply("❌ کد تایید منقضی شده است. لطفاً دوباره شماره خود را ارسال کنید تا کد جدید دریافت کنید.")
+                user_states[message.from_user.id] = "awaiting_phone"
+                temp_data.pop(message.from_user.id, None)
+            else:
+                await message.reply(f"❌ ورود ناموفق:\n{error_msg}")
         finally:
-            user_states.pop(message.from_user.id, None)
-            temp_data.pop(message.from_user.id, None)
+            if message.from_user.id in user_states and user_states[message.from_user.id] != "awaiting_phone":
+                user_states.pop(message.from_user.id, None)
+            if message.from_user.id in temp_data and temp_data.get(message.from_user.id) is not None:
+                temp_data.pop(message.from_user.id, None)
         return
 
     if state == "awaiting_attack_group":
