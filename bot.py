@@ -75,7 +75,7 @@ def main_menu():
         [InlineKeyboardButton("📘 راهنما", url="https://t.me/+wZVsaT38RHE5YjU8")],
         [InlineKeyboardButton("ℹ️ درباره MC", callback_data="about")],
         [InlineKeyboardButton("🆕 یوزرنیم ممبرای ویسکال", callback_data="get_voicecall_usernames")],
-        [InlineKeyboardButton("🆕 یوزرنیم اعضای چت فعال", callback_data="get_activechat_usernames")],
+        [InlineKeyboardButton("🧠 یوزرنیم اعضای چت فعال (با حداقل پیام)", callback_data="active_chat_custom")],
         [InlineKeyboardButton("💬 ارتباط با سازنده", url="https://t.me/mindrobotmc")],
     ])
 
@@ -271,12 +271,9 @@ async def callback(client, call):
         await call.answer()
         return
 
-    if data == "get_activechat_usernames":
-        # نمونه ساده - قابل توسعه
-        await call.message.edit_text(
-            "🆕 دریافت لیست یوزرنیم اعضای چت فعال:\n(نمونه)\nuserA\nuserB\nuserC",
-            reply_markup=main_menu()
-        )
+    if data == "active_chat_custom":
+        user_states[call.from_user.id] = "awaiting_group_link"
+        await call.message.edit_text("🔗 لطفاً لینک گروه یا آیدی گروه را ارسال کنید.")
         await call.answer()
         return
 
@@ -287,7 +284,7 @@ async def callback(client, call):
 
     await call.answer()
 
-# --- دریافت متن برای اضافه کردن اکانت و ثبت گروه اتک ---
+# --- دریافت متن برای اضافه کردن اکانت و ثبت گروه اتک و یوزرنیم اعضای چت فعال ---
 @bot.on_message(filters.private & filters.text)
 async def handle_text(client, message):
     if message.from_user.id != OWNER_ID:
@@ -382,6 +379,69 @@ async def handle_text(client, message):
         save_json(ATTACK_GROUPS_FILE, groups)
         await message.reply(f"✅ گروه جدید ثبت شد:\n{group_text}")
         user_states.pop(message.from_user.id, None)
+        return
+
+    if state == "awaiting_group_link":
+        group_link = message.text.strip()
+        temp_data[message.from_user.id] = {"group_link": group_link}
+        user_states[message.from_user.id] = "awaiting_min_messages"
+        await message.reply("📨 لطفاً حداقل تعداد پیام اعضا را وارد کنید (مثال: 160)")
+        return
+
+    if state == "awaiting_min_messages":
+        try:
+            min_msgs = int(message.text.strip())
+        except:
+            await message.reply("❌ لطفاً فقط عدد وارد کنید.")
+            return
+
+        group_link = temp_data[message.from_user.id]["group_link"]
+        helpers = load_json(HELPERS_FILE) or []
+        if not helpers:
+            await message.reply("⚠️ اکانت هلپر یافت نشد. ابتدا اکانت اضافه کنید.")
+            user_states.pop(message.from_user.id, None)
+            temp_data.pop(message.from_user.id, None)
+            return
+
+        phone = helpers[0]["phone"]
+        session_name = phone.replace("+", "")
+        try:
+            tg_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
+            await tg_client.start()
+
+            # تلاش برای گرفتن اطلاعات گروه
+            try:
+                chat = await tg_client.get_chat(group_link)
+            except Exception:
+                # اگر عضو نیست، تلاش به جوین کردن
+                chat = await tg_client.join_chat(group_link)
+
+            chat_id = chat.id
+            members_msgs = {}
+
+            async for msg in tg_client.iter_history(chat_id, limit=5000):
+                if msg.from_user and msg.from_user.username:
+                    username = msg.from_user.username
+                    members_msgs[username] = members_msgs.get(username, 0) + 1
+
+            filtered = {u: c for u, c in members_msgs.items() if c >= min_msgs}
+
+            if not filtered:
+                await message.reply(f"❌ هیچ یوزرنیمی با حداقل {min_msgs} پیام یافت نشد.")
+            else:
+                result_text = "\n".join([f"@{u} ({c} پیام)" for u, c in sorted(filtered.items(), key=lambda x: -x[1])])
+                filename = f"active_chat_{chat_id}.txt"
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(result_text)
+                await bot.send_document(message.chat.id, filename, caption=f"✅ لیست یوزرنیم‌ها با حداقل {min_msgs} پیام")
+                os.remove(filename)
+
+            await tg_client.stop()
+        except Exception as e:
+            await message.reply(f"❌ خطا در پردازش:\n{e}")
+        finally:
+            user_states.pop(message.from_user.id, None)
+            temp_data.pop(message.from_user.id, None)
         return
 
 # --- اجرای ربات ---
