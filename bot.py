@@ -4,7 +4,7 @@ from datetime import datetime
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- مشخصات ---
+# --- مشخصات ربات ---
 BOT_TOKEN = "8032544795:AAF6uK-SKxG5fzAWSUTRauqXor4YG7013Jk"
 API_ID = 29698707
 API_HASH = "22b012816bcf16d58d826e6e3606a273"
@@ -12,27 +12,29 @@ OWNER_ID = 7608419661
 
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- فایل‌های داده ---
+# --- مسیر فایل‌ها ---
 HELPERS_FILE = "helpers.json"
 STATS_FILE = "stats.json"
 ATTACK_GROUPS_FILE = "attack_groups.json"
+TARGET_IDS_FILE = "target_ids.json"  # فایل ذخیره آیدی‌هایی که ربات جمع کرده برای اتک
 
-# --- متغیرهای موقت و وضعیت کاربر ---
+# --- وضعیت‌ها و داده‌های موقت ---
 user_states = {}
 temp_data = {}
 
-# --- ایجاد فایل‌ها در صورت عدم وجود ---
+# --- اطمینان از وجود فایل‌ها ---
 def ensure_data_files():
-    defaults = {
+    files_and_defaults = {
         HELPERS_FILE: [],
         STATS_FILE: {"daily": {}, "weekly": {}, "monthly": {}, "yearly": {}},
-        ATTACK_GROUPS_FILE: []
+        ATTACK_GROUPS_FILE: [],
+        TARGET_IDS_FILE: []  # لیست آیدی‌ها
     }
-    for filename, default in defaults.items():
-        if not os.path.exists(filename):
-            with open(filename, "w", encoding="utf-8") as f:
-                json.dump(default, f, indent=2)
-            print(f"[INFO] فایل داده {filename} ساخته شد.")
+    for fname, default in files_and_defaults.items():
+        if not os.path.exists(fname):
+            with open(fname, "w", encoding="utf-8") as f:
+                json.dump(default, f, indent=2, ensure_ascii=False)
+            print(f"[INFO] فایل داده {fname} ساخته شد.")
 
 ensure_data_files()
 
@@ -42,7 +44,7 @@ def load_json(filename):
         with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        print(f"[ERROR] بارگذاری فایل {filename} با مشکل مواجه شد: {e}")
+        print(f"[ERROR] خطا در بارگذاری {filename}: {e}")
         return None
 
 def save_json(filename, data):
@@ -50,7 +52,7 @@ def save_json(filename, data):
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print(f"[ERROR] ذخیره فایل {filename} با مشکل مواجه شد: {e}")
+        print(f"[ERROR] خطا در ذخیره {filename}: {e}")
 
 def get_today_str():
     return datetime.now().strftime("%Y-%m-%d")
@@ -68,33 +70,40 @@ def get_year_str():
 # --- منوی اصلی ---
 def main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📩 اتک", callback_data="attack_menu")],
+        [InlineKeyboardButton("📩 منوی اتک", callback_data="attack_menu")],
         [InlineKeyboardButton("📄 لیست اکانت‌ها", callback_data="list_1")],
         [InlineKeyboardButton("➕ اضافه کردن اکانت", callback_data="add")],
         [InlineKeyboardButton("📊 آمار ارسال‌ها", callback_data="stats")],
+        [InlineKeyboardButton("📥 مدیریت لیست آیدی‌ها برای اتک", callback_data="target_ids_menu")],
         [InlineKeyboardButton("📘 راهنما", url="https://t.me/+wZVsaT38RHE5YjU8")],
         [InlineKeyboardButton("ℹ️ درباره MC", callback_data="about")],
-        [InlineKeyboardButton("🆕 یوزرنیم ممبرای ویسکال", callback_data="get_voicecall_usernames")],
-        [InlineKeyboardButton("🧠 یوزرنیم اعضای چت فعال (با حداقل پیام)", callback_data="active_chat_custom")],
+        [InlineKeyboardButton("🧠 یوزرنیم اعضای چت فعال", callback_data="active_chat_custom")],
         [InlineKeyboardButton("💬 ارتباط با سازنده", url="https://t.me/mindrobotmc")],
     ])
 
-# --- شروع ربات ---
+# --- پیغام استارت ---
 @bot.on_message(filters.private & filters.command("start"))
-async def start(client, message):
+async def start_handler(client, message):
     if message.from_user.id != OWNER_ID:
         return
     await message.reply("به ربات MC خوش آمدید!", reply_markup=main_menu())
 
-# --- مدیریت کال‌بک‌ها ---
+# --- هندلر کال‌بک‌ها ---
 @bot.on_callback_query()
-async def callback(client, call):
+async def callback_handler(client, call):
     if call.from_user.id != OWNER_ID:
-        await call.answer("دسترسی ندارید.", show_alert=True)
+        await call.answer("شما اجازه دسترسی به این بخش را ندارید.", show_alert=True)
         return
 
     data = call.data
 
+    # منوی اصلی
+    if data == "main":
+        await call.message.edit_text("🏠 منوی اصلی", reply_markup=main_menu())
+        await call.answer()
+        return
+
+    # درباره
     if data == "about":
         about_text = (
             "🤖 ربات MC - مدیریت پیشرفته اکانت‌ها و اتک\n"
@@ -105,16 +114,16 @@ async def callback(client, call):
         await call.answer()
         return
 
+    # راهنما
     if data == "help":
         await call.message.edit_text(
-            "📘 راهنما:\n"
-            "برای آموزش کامل به کانال زیر مراجعه کنید:\n"
-            "https://t.me/+wZVsaT38RHE5YjU8",
+            "📘 راهنما:\nبرای آموزش کامل به کانال زیر مراجعه کنید:\nhttps://t.me/+wZVsaT38RHE5YjU8",
             reply_markup=main_menu()
         )
         await call.answer()
         return
 
+    # آمار ارسال‌ها
     if data == "stats":
         stats = load_json(STATS_FILE) or {}
         today = get_today_str()
@@ -138,6 +147,7 @@ async def callback(client, call):
         await call.answer()
         return
 
+    # لیست اکانت‌ها - صفحه‌بندی
     if data.startswith("list_") or data == "list":
         page = 1
         if "_" in data:
@@ -156,12 +166,12 @@ async def callback(client, call):
         total = len(helpers)
         total_pages = (total + per_page - 1) // per_page
         page = max(1, min(page, total_pages))
-        page_items = helpers[(page-1)*per_page : page*per_page]
+        page_items = helpers[(page - 1) * per_page: page * per_page]
 
         text = f"📄 <b>لیست اکانت‌ها (صفحه {page}/{total_pages}):</b>\n\n"
         buttons = []
 
-        for i, acc in enumerate(page_items, start=(page-1)*per_page+1):
+        for i, acc in enumerate(page_items, start=(page - 1) * per_page + 1):
             phone = acc.get("phone")
             report = acc.get("report", False)
             report_end = acc.get("report_end", "ندارد")
@@ -176,29 +186,30 @@ async def callback(client, call):
 
         nav_buttons = []
         if page > 1:
-            nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"list_{page-1}"))
+            nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"list_{page - 1}"))
         if page < total_pages:
-            nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"list_{page+1}"))
+            nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"list_{page + 1}"))
         if nav_buttons:
             buttons.append(nav_buttons)
 
         buttons.append([InlineKeyboardButton("🔄 بروزرسانی", callback_data=f"list_{page}")])
         buttons.append([InlineKeyboardButton("🏠 منوی اصلی", callback_data="main")])
 
-        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="html")
+        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
         await call.answer()
         return
 
+    # حذف اکانت
     if data.startswith("del_"):
         phone = data.split("_", 1)[1]
         helpers = load_json(HELPERS_FILE) or []
         new_helpers = [acc for acc in helpers if acc.get("phone") != phone]
         save_json(HELPERS_FILE, new_helpers)
         await call.answer(f"اکانت {phone} حذف شد.")
-        # بروزرسانی لیست در همان صفحه
         await call.message.edit_text("لیست اکانت‌ها بروزرسانی شد.", reply_markup=main_menu())
         return
 
+    # اضافه کردن اکانت - شروع
     if data == "add":
         if user_states.get(call.from_user.id) == "awaiting_phone":
             await call.answer("⏳ لطفاً ابتدا شماره قبلی را وارد کنید.", show_alert=True)
@@ -208,10 +219,11 @@ async def callback(client, call):
         await bot.send_message(call.from_user.id, "➕ لطفاً شماره اکانت را با +98 ارسال کنید.")
         return
 
+    # منوی اتک
     if data == "attack_menu":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ اتک زده شده‌ها", callback_data="attack_done")],
-            [InlineKeyboardButton("❌ اتک زده نشده‌ها", callback_data="attack_not_done")],
+            [InlineKeyboardButton("✅ گروه‌های اتک زده شده", callback_data="attack_done")],
+            [InlineKeyboardButton("❌ گروه‌های اتک زده نشده", callback_data="attack_not_done")],
             [InlineKeyboardButton("➕ ثبت گروه جدید", callback_data="attack_add_group")],
             [InlineKeyboardButton("🏠 منوی اصلی", callback_data="main")],
         ])
@@ -219,6 +231,7 @@ async def callback(client, call):
         await call.answer()
         return
 
+    # گروه‌های اتک زده شده
     if data == "attack_done":
         groups = load_json(ATTACK_GROUPS_FILE) or []
         done = [g for g in groups if g.get("attacked", False)]
@@ -236,6 +249,7 @@ async def callback(client, call):
         await call.answer()
         return
 
+    # گروه‌های اتک زده نشده
     if data == "attack_not_done":
         groups = load_json(ATTACK_GROUPS_FILE) or []
         not_done = [g for g in groups if not g.get("attacked", False)]
@@ -253,6 +267,7 @@ async def callback(client, call):
         await call.answer()
         return
 
+    # ثبت گروه اتک جدید
     if data == "attack_add_group":
         if user_states.get(call.from_user.id) == "awaiting_attack_group":
             await call.answer("⏳ لطفاً ابتدا گروه قبلی را وارد کنید.", show_alert=True)
@@ -262,41 +277,131 @@ async def callback(client, call):
         await bot.send_message(call.from_user.id, "➕ لطفاً آیدی گروه یا عنوان گروه جدید را ارسال کنید.")
         return
 
-    if data == "get_voicecall_usernames":
-        # نمونه ساده - قابل توسعه
-        await call.message.edit_text(
-            "🆕 دریافت لیست یوزرنیم ممبرای ویسکال:\n(نمونه)\nuser1\nuser2\nuser3",
-            reply_markup=main_menu()
-        )
+    # منوی مدیریت آیدی‌ها (برای اتک)
+    if data == "target_ids_menu":
+        target_ids = load_json(TARGET_IDS_FILE) or []
+        text = f"📥 تعداد آیدی‌های ذخیره شده: {len(target_ids)}\n\n"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ اضافه کردن دستی آیدی", callback_data="add_target_id_manual")],
+            [InlineKeyboardButton("🗑️ پاک کردن همه آیدی‌ها", callback_data="clear_target_ids")],
+            [InlineKeyboardButton("🚀 ارسال اتک به آیدی‌ها", callback_data="send_attack_to_targets")],
+            [InlineKeyboardButton("🏠 منوی اصلی", callback_data="main")],
+        ])
+        await call.message.edit_text(text, reply_markup=keyboard)
         await call.answer()
         return
 
-    if data == "active_chat_custom":
-        user_states[call.from_user.id] = "awaiting_group_link"
-        await call.message.edit_text("🔗 لطفاً لینک گروه یا آیدی گروه را ارسال کنید.")
+    # اضافه کردن دستی آیدی برای اتک
+    if data == "add_target_id_manual":
+        user_states[call.from_user.id] = "awaiting_target_id_manual"
+        await call.message.edit_text("➕ لطفاً آیدی عددی (مثلا 123456789) را ارسال کنید. (برای افزودن چند آیدی آنها را با فاصله یا خط جدید جدا کنید.)")
         await call.answer()
         return
 
-    if data == "main":
-        await call.message.edit_text("🏠 منوی اصلی", reply_markup=main_menu())
+    # پاک کردن همه آیدی‌ها
+    if data == "clear_target_ids":
+        save_json(TARGET_IDS_FILE, [])
+        await call.message.edit_text("✅ همه آیدی‌ها حذف شدند.", reply_markup=main_menu())
         await call.answer()
         return
 
+    # ارسال اتک به لیست آیدی‌ها
+    if data == "send_attack_to_targets":
+        target_ids = load_json(TARGET_IDS_FILE) or []
+        helpers = load_json(HELPERS_FILE) or []
+
+        if not target_ids:
+            await call.answer("❌ لیست آیدی‌ها خالی است.", show_alert=True)
+            return
+
+        if not helpers:
+            await call.answer("❌ هیچ اکانت هلپری اضافه نشده.", show_alert=True)
+            return
+
+        # شروع اتک
+        user_states[call.from_user.id] = "attacking_targets"
+        temp_data[call.from_user.id] = {
+            "targets": target_ids,
+            "current_index": 0,
+            "results": []
+        }
+
+        await call.message.edit_text(f"🚀 ارسال اتک به {len(target_ids)} آیدی شروع شد...\nلطفاً منتظر بمانید.")
+        await call.answer()
+
+        await attack_targets(client, call.from_user.id)
+        return
+
+    # پاسخ به بقیه موارد و کال‌بک‌های نامشخص
     await call.answer()
 
-# --- دریافت متن برای اضافه کردن اکانت و ثبت گروه اتک و یوزرنیم اعضای چت فعال ---
+# --- ارسال اتک به آیدی‌ها ---
+async def attack_targets(client: Client, user_id: int):
+    state_data = temp_data.get(user_id)
+    if not state_data:
+        return
+
+    targets = state_data.get("targets", [])
+    idx = state_data.get("current_index", 0)
+    results = state_data.get("results", [])
+
+    helpers = load_json(HELPERS_FILE) or []
+    if not helpers:
+        # خطا: اکانت هلپر نیست
+        await bot.send_message(user_id, "❌ هیچ اکانت هلپری یافت نشد. لطفاً ابتدا اکانت اضافه کنید.")
+        user_states.pop(user_id, None)
+        temp_data.pop(user_id, None)
+        return
+
+    # برای هر آیدی در لیست، پیام یا دستور ارسال می‌کنیم
+    # استفاده چرخشی از اکانت‌ها برای اتک بهتر
+    while idx < len(targets):
+        target_id = targets[idx]
+        helper_acc = helpers[idx % len(helpers)]
+        phone = helper_acc.get("phone")
+        session_name = phone.replace("+", "")
+        message_text = "⚠️ این یک پیام اتک تستی است."
+
+        try:
+            # ایجاد کلاینت با سشن استرینگ ذخیره شده
+            tg_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
+            await tg_client.start()
+
+            # ارسال پیام به آیدی هدف
+            await tg_client.send_message(chat_id=int(target_id), text=message_text)
+
+            await tg_client.stop()
+
+            results.append({"target": target_id, "status": "موفق"})
+            await bot.send_message(user_id, f"✅ ارسال موفق به آیدی {target_id}")
+        except Exception as e:
+            results.append({"target": target_id, "status": f"خطا: {e}"})
+            await bot.send_message(user_id, f"❌ ارسال به آیدی {target_id} با خطا: {e}")
+
+        idx += 1
+        state_data["current_index"] = idx
+        state_data["results"] = results
+
+    # پایان اتک
+    user_states.pop(user_id, None)
+    temp_data.pop(user_id, None)
+    await bot.send_message(user_id, "🚀 ارسال اتک به همه آیدی‌ها به پایان رسید.")
+
+# --- هندلر پیام‌های متنی برای دریافت ورودی‌ها ---
 @bot.on_message(filters.private & filters.text)
-async def handle_text(client, message):
+async def text_handler(client, message):
     if message.from_user.id != OWNER_ID:
         return
 
     state = user_states.get(message.from_user.id)
 
+    # اضافه کردن اکانت - شماره تلفن
     if state == "awaiting_phone":
         phone = message.text.strip()
         if not phone.startswith("+98"):
             await message.reply("❌ شماره باید با +98 شروع شود.")
             return
+
         session_name = phone.replace("+", "")
         try:
             tg_client = Client(session_name, api_id=API_ID, api_hash=API_HASH, in_memory=True)
@@ -314,6 +419,7 @@ async def handle_text(client, message):
             user_states.pop(message.from_user.id, None)
         return
 
+    # اضافه کردن اکانت - کد تایید
     if state == "awaiting_code":
         raw_code = message.text.strip()
         code = "".join(filter(str.isdigit, raw_code))
@@ -335,6 +441,7 @@ async def handle_text(client, message):
             helpers = load_json(HELPERS_FILE) or []
             acc_data = {
                 "phone": phone,
+                "session_string": session_string,
                 "report": False,
                 "report_end": None
             }
@@ -344,7 +451,7 @@ async def handle_text(client, message):
 
             await message.reply(
                 f"✅ اکانت {phone} وارد شد و ذخیره شد.\n\nکد جلسه:\n<code>{session_string}</code>",
-                parse_mode="html"
+                parse_mode="HTML"
             )
         except Exception as e:
             error_msg = str(e)
@@ -355,12 +462,11 @@ async def handle_text(client, message):
             else:
                 await message.reply(f"❌ ورود ناموفق:\n{error_msg}")
         finally:
-            if message.from_user.id in user_states and user_states[message.from_user.id] != "awaiting_phone":
-                user_states.pop(message.from_user.id, None)
-            if message.from_user.id in temp_data and temp_data.get(message.from_user.id) is not None:
-                temp_data.pop(message.from_user.id, None)
+            user_states.pop(message.from_user.id, None)
+            temp_data.pop(message.from_user.id, None)
         return
 
+    # ثبت گروه اتک
     if state == "awaiting_attack_group":
         group_text = message.text.strip()
         groups = load_json(ATTACK_GROUPS_FILE) or []
@@ -381,67 +487,30 @@ async def handle_text(client, message):
         user_states.pop(message.from_user.id, None)
         return
 
-    if state == "awaiting_group_link":
-        group_link = message.text.strip()
-        temp_data[message.from_user.id] = {"group_link": group_link}
-        user_states[message.from_user.id] = "awaiting_min_messages"
-        await message.reply("📨 لطفاً حداقل تعداد پیام اعضا را وارد کنید (مثال: 160)")
-        return
+    # اضافه کردن دستی آیدی برای اتک
+    if state == "awaiting_target_id_manual":
+        raw_ids = message.text.strip()
+        # تفکیک آیدی‌ها براساس فضا یا خط جدید
+        ids = set()
+        for line in raw_ids.splitlines():
+            parts = line.split()
+            for p in parts:
+                if p.isdigit():
+                    ids.add(p)
 
-    if state == "awaiting_min_messages":
-        try:
-            min_msgs = int(message.text.strip())
-        except:
-            await message.reply("❌ لطفاً فقط عدد وارد کنید.")
+        if not ids:
+            await message.reply("❌ هیچ آیدی عددی معتبری پیدا نشد.")
             return
 
-        group_link = temp_data[message.from_user.id]["group_link"]
-        helpers = load_json(HELPERS_FILE) or []
-        if not helpers:
-            await message.reply("⚠️ اکانت هلپر یافت نشد. ابتدا اکانت اضافه کنید.")
-            user_states.pop(message.from_user.id, None)
-            temp_data.pop(message.from_user.id, None)
-            return
+        target_ids = load_json(TARGET_IDS_FILE) or []
+        # اضافه کردن بدون تکراری
+        for new_id in ids:
+            if new_id not in target_ids:
+                target_ids.append(new_id)
+        save_json(TARGET_IDS_FILE, target_ids)
 
-        phone = helpers[0]["phone"]
-        session_name = phone.replace("+", "")
-        try:
-            tg_client = Client(session_name, api_id=API_ID, api_hash=API_HASH)
-            await tg_client.start()
-
-            # تلاش برای گرفتن اطلاعات گروه
-            try:
-                chat = await tg_client.get_chat(group_link)
-            except Exception:
-                # اگر عضو نیست، تلاش به جوین کردن
-                chat = await tg_client.join_chat(group_link)
-
-            chat_id = chat.id
-            members_msgs = {}
-
-            async for msg in tg_client.iter_history(chat_id, limit=5000):
-                if msg.from_user and msg.from_user.username:
-                    username = msg.from_user.username
-                    members_msgs[username] = members_msgs.get(username, 0) + 1
-
-            filtered = {u: c for u, c in members_msgs.items() if c >= min_msgs}
-
-            if not filtered:
-                await message.reply(f"❌ هیچ یوزرنیمی با حداقل {min_msgs} پیام یافت نشد.")
-            else:
-                result_text = "\n".join([f"@{u} ({c} پیام)" for u, c in sorted(filtered.items(), key=lambda x: -x[1])])
-                filename = f"active_chat_{chat_id}.txt"
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(result_text)
-                await bot.send_document(message.chat.id, filename, caption=f"✅ لیست یوزرنیم‌ها با حداقل {min_msgs} پیام")
-                os.remove(filename)
-
-            await tg_client.stop()
-        except Exception as e:
-            await message.reply(f"❌ خطا در پردازش:\n{e}")
-        finally:
-            user_states.pop(message.from_user.id, None)
-            temp_data.pop(message.from_user.id, None)
+        await message.reply(f"✅ {len(ids)} آیدی جدید اضافه شد.\nمجموع آیدی‌ها: {len(target_ids)}")
+        user_states.pop(message.from_user.id, None)
         return
 
 # --- اجرای ربات ---
