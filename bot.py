@@ -17,28 +17,40 @@ HELPERS_FILE = "helpers.json"
 STATS_FILE = "stats.json"
 ATTACK_GROUPS_FILE = "attack_groups.json"
 
-# --- متغیرهای موقت ---
+# --- متغیرهای موقت و وضعیت کاربر ---
 user_states = {}
 temp_data = {}
 
-# --- ایجاد فایل‌ها ---
-for filename, default in [
-    (HELPERS_FILE, []),
-    (STATS_FILE, {"daily": {}, "weekly": {}, "monthly": {}, "yearly": {}}),
-    (ATTACK_GROUPS_FILE, [])
-]:
-    if not os.path.exists(filename):
-        with open(filename, "w") as f:
-            json.dump(default, f, indent=2)
+# --- ایجاد فایل‌ها در صورت عدم وجود ---
+def ensure_data_files():
+    defaults = {
+        HELPERS_FILE: [],
+        STATS_FILE: {"daily": {}, "weekly": {}, "monthly": {}, "yearly": {}},
+        ATTACK_GROUPS_FILE: []
+    }
+    for filename, default in defaults.items():
+        if not os.path.exists(filename):
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(default, f, indent=2)
+            print(f"[INFO] فایل داده {filename} ساخته شد.")
+
+ensure_data_files()
 
 # --- توابع کمکی ---
 def load_json(filename):
-    with open(filename, "r") as f:
-        return json.load(f)
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[ERROR] بارگذاری فایل {filename} با مشکل مواجه شد: {e}")
+        return None
 
 def save_json(filename, data):
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=2)
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[ERROR] ذخیره فایل {filename} با مشکل مواجه شد: {e}")
 
 def get_today_str():
     return datetime.now().strftime("%Y-%m-%d")
@@ -104,7 +116,7 @@ async def callback(client, call):
         return
 
     if data == "stats":
-        stats = load_json(STATS_FILE)
+        stats = load_json(STATS_FILE) or {}
         today = get_today_str()
         week = get_week_str()
         month = get_month_str()
@@ -134,7 +146,7 @@ async def callback(client, call):
             except:
                 page = 1
 
-        helpers = load_json(HELPERS_FILE)
+        helpers = load_json(HELPERS_FILE) or []
         if not helpers:
             await call.message.edit_text("⚠️ هیچ اکانتی ثبت نشده.", reply_markup=main_menu())
             await call.answer()
@@ -179,10 +191,11 @@ async def callback(client, call):
 
     if data.startswith("del_"):
         phone = data.split("_", 1)[1]
-        helpers = load_json(HELPERS_FILE)
+        helpers = load_json(HELPERS_FILE) or []
         new_helpers = [acc for acc in helpers if acc.get("phone") != phone]
         save_json(HELPERS_FILE, new_helpers)
         await call.answer(f"اکانت {phone} حذف شد.")
+        # بروزرسانی لیست در همان صفحه
         await call.message.edit_text("لیست اکانت‌ها بروزرسانی شد.", reply_markup=main_menu())
         return
 
@@ -207,7 +220,7 @@ async def callback(client, call):
         return
 
     if data == "attack_done":
-        groups = load_json(ATTACK_GROUPS_FILE)
+        groups = load_json(ATTACK_GROUPS_FILE) or []
         done = [g for g in groups if g.get("attacked", False)]
         if not done:
             await call.message.edit_text("❌ هیچ گروهی هنوز اتک زده نشده.", reply_markup=main_menu())
@@ -224,7 +237,7 @@ async def callback(client, call):
         return
 
     if data == "attack_not_done":
-        groups = load_json(ATTACK_GROUPS_FILE)
+        groups = load_json(ATTACK_GROUPS_FILE) or []
         not_done = [g for g in groups if not g.get("attacked", False)]
         if not not_done:
             await call.message.edit_text("✅ همه گروه‌ها اتک زده شده‌اند.", reply_markup=main_menu())
@@ -250,7 +263,7 @@ async def callback(client, call):
         return
 
     if data == "get_voicecall_usernames":
-        # نمونه ساده - برای توسعه خودتان
+        # نمونه ساده - قابل توسعه
         await call.message.edit_text(
             "🆕 دریافت لیست یوزرنیم ممبرای ویسکال:\n(نمونه)\nuser1\nuser2\nuser3",
             reply_markup=main_menu()
@@ -259,7 +272,7 @@ async def callback(client, call):
         return
 
     if data == "get_activechat_usernames":
-        # نمونه ساده - برای توسعه خودتان
+        # نمونه ساده - قابل توسعه
         await call.message.edit_text(
             "🆕 دریافت لیست یوزرنیم اعضای چت فعال:\n(نمونه)\nuserA\nuserB\nuserC",
             reply_markup=main_menu()
@@ -322,7 +335,7 @@ async def handle_text(client, message):
             session_string = await tg_client.export_session_string()
             await tg_client.disconnect()
 
-            helpers = load_json(HELPERS_FILE)
+            helpers = load_json(HELPERS_FILE) or []
             acc_data = {
                 "phone": phone,
                 "report": False,
@@ -332,7 +345,10 @@ async def handle_text(client, message):
                 helpers.append(acc_data)
                 save_json(HELPERS_FILE, helpers)
 
-            await message.reply(f"✅ اکانت {phone} وارد شد و ذخیره شد.\n\nکد جلسه:\n<code>{session_string}</code>", parse_mode="html")
+            await message.reply(
+                f"✅ اکانت {phone} وارد شد و ذخیره شد.\n\nکد جلسه:\n<code>{session_string}</code>",
+                parse_mode="html"
+            )
         except Exception as e:
             await message.reply(f"❌ ورود ناموفق:\n{e}")
         finally:
@@ -342,7 +358,7 @@ async def handle_text(client, message):
 
     if state == "awaiting_attack_group":
         group_text = message.text.strip()
-        groups = load_json(ATTACK_GROUPS_FILE)
+        groups = load_json(ATTACK_GROUPS_FILE) or []
         if any(g.get("group_id") == group_text or g.get("title") == group_text for g in groups):
             await message.reply("⚠️ این گروه قبلاً ثبت شده است.")
             user_states.pop(message.from_user.id, None)
@@ -361,4 +377,6 @@ async def handle_text(client, message):
         return
 
 # --- اجرای ربات ---
-bot.run()
+if __name__ == "__main__":
+    print("[INFO] ربات در حال اجراست...")
+    bot.run()
