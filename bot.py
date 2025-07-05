@@ -44,12 +44,9 @@ def save_json(filename, data):
 # --- کلاینت اصلی ربات ---
 bot = Client("mc_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# دیکشنری اکانت‌های هلپر به صورت {phone: Client}
-helper_clients = {}
-# وضعیت کاربر در فرایندهای مختلف
-user_states = {}
-# داده‌های موقت (شماره و کد OTP)
-temp_data = {}
+helper_clients = {}  # {phone: Client}
+user_states = {}     # {user_id: state}
+temp_data = {}       # {user_id: {"phone": ..., "otp": ...}}
 
 # --- منوها ---
 def main_menu():
@@ -102,7 +99,35 @@ def get_id_menu():
         [InlineKeyboardButton("↩️ بازگشت", callback_data="main")],
     ])
 
-# --- اتصال هلپر ---
+# --- اصلاح کد OTP (حذف کاراکتر غیرعددی) ---
+def fix_otp_code(otp_raw: str) -> str:
+    return ''.join(ch for ch in otp_raw if ch.isdigit())
+
+# --- ورود هلپر با کد OTP بدون درخواست مجدد ---
+async def login_helper_with_otp(phone, otp):
+    client = Client(
+        f"helper_{phone}",
+        api_id=API_ID,
+        api_hash=API_HASH,
+        phone_number=phone,
+        workdir=f"./sessions/helper_{phone}"
+    )
+    await client.connect()
+
+    try:
+        if not await client.is_user_authorized():
+            await client.sign_in(phone, otp)
+        if await client.is_user_authorized():
+            helper_clients[phone] = client
+            return client
+        else:
+            await client.disconnect()
+            return None
+    except Exception:
+        await client.disconnect()
+        return None
+
+# --- اتصال هلپر (برای اکانت‌های لاگین شده) ---
 async def connect_helper(phone: str):
     if phone in helper_clients:
         return helper_clients[phone]
@@ -165,7 +190,6 @@ async def mass_attack(message_text: str):
             results.append((phone, title, success, error))
             log_attack(phone, title, status, error)
             update_stats()
-            # اگر خطای FloodWait بود کمی صبر کن
             if error == "FloodWait":
                 await asyncio.sleep(10)
     return True, results
@@ -209,11 +233,6 @@ def delete_helper_account(phone):
 def get_logs_by_phone(phone):
     logs = load_json(LOG_FILE) or []
     return [log for log in logs if log.get("phone") == phone]
-
-# --- اصلاح کد OTP ---
-def fix_otp_code(otp_raw: str) -> str:
-    # حذف _ و فاصله و هر چیزی غیر عدد
-    return ''.join(ch for ch in otp_raw if ch.isdigit())
 
 # --- هندلر شروع ربات ---
 @bot.on_message(filters.private & filters.command("start"))
@@ -296,7 +315,7 @@ async def callback_handler(client, call):
         groups = load_json(ATTACK_GROUPS_FILE) or []
         ready = [g for g in groups if not g.get("attacked")]
         if not ready:
-            await call.message.edit_text("✅ همه گروه‌ها آماده اتک هستند.", reply_markup=attack_menu())
+            await call.message.edit_text("🕐 هیچ گروهی آماده اتک نیست.", reply_markup=attack_menu())
             await call.answer()
             return
         text = "🕐 گروه‌های آماده اتک:\n\n"
@@ -307,53 +326,14 @@ async def callback_handler(client, call):
         return
 
     if data == "attack_add_group":
-        user_states[call.from_user.id] = "awaiting_attack_group"
-        await call.message.edit_text("➕ لطفاً عنوان گروه جدید را ارسال کنید.")
+        user_states[call.from_user.id] = "awaiting_new_group"
+        await call.message.edit_text("➕ لطفاً اطلاعات گروه جدید را به صورت `آیدی گروه | نام گروه` ارسال کنید.")
         await call.answer()
         return
 
-    # اتک همگانی
     if data == "attack_mass":
-        user_states[call.from_user.id] = "awaiting_mass_attack_text"
-        await call.message.edit_text("📩 لطفاً متن پیام اتک را ارسال کنید.")
-        await call.answer()
-        return
-
-    # مدیریت اکانت‌ها با فیلتر وضعیت‌ها
-    if data.startswith("acc_status_"):
-        status = data[len("acc_status_"):]
-        helpers = load_json(HELPERS_FILE) or []
-        filtered = []
-        if status == "healthy":
-            filtered = [h for h in helpers if not h.get("report", False) and not h.get("deleted", False)]
-            title = "✅ اکانت‌های سالم"
-        elif status == "reported":
-            filtered = [h for h in helpers if h.get("report", False)]
-            title = "❌ اکانت‌های ریپورت"
-        elif status == "deleted":
-            filtered = [h for h in helpers if h.get("deleted", False)]
-            title = "🗑 اکانت‌های دیلیت شده"
-        elif status == "recovering":
-            filtered = [h for h in helpers if h.get("recovering", False)]
-            title = "🔄 اکانت‌های درحال ریکاوری"
-        else:
-            filtered = helpers
-            title = "اکانت‌ها"
-
-        if not filtered:
-            await call.message.edit_text(f"⚠️ هیچ اکانتی با وضعیت {title} یافت نشد.", reply_markup=accounts_status_menu())
-            await call.answer()
-            return
-
-        text = f"{title}:\n\n"
-        for i, h in enumerate(filtered, 1):
-            phone = h.get("phone", "ناشناخته")
-            extra = ""
-            if h.get("report", False):
-                extra = f" - ریپورت تا {h.get('report_end', 'نامشخص')}"
-            text += f"{i}. {phone}{extra}\n"
-        text += "\nبرای حذف اکانت: /delete_helper <شماره>\nبرای مشاهده لاگ‌ها: /view_logs <شماره>"
-        await call.message.edit_text(text, reply_markup=accounts_status_menu())
+        user_states[call.from_user.id] = "awaiting_mass_message"
+        await call.message.edit_text("🚀 لطفاً پیام اتک را ارسال کنید.")
         await call.answer()
         return
 
@@ -376,70 +356,112 @@ async def callback_handler(client, call):
         await call.answer()
         return
 
-    # آمار ساده (سالانه، ماهانه، روزانه)
+    if data == "acc_status_healthy":
+        helpers = load_json(HELPERS_FILE) or []
+        healthy = [h for h in helpers if not h.get("report") and not h.get("deleted")]
+        if not healthy:
+            await call.message.edit_text("✅ اکانتی یافت نشد.", reply_markup=accounts_status_menu())
+            await call.answer()
+            return
+        text = "✅ اکانت‌های سالم:\n\n"
+        for i, h in enumerate(healthy, 1):
+            text += f"{i}. {h.get('phone')}\n"
+        await call.message.edit_text(text, reply_markup=accounts_status_menu())
+        await call.answer()
+        return
+
+    if data == "acc_status_reported":
+        helpers = load_json(HELPERS_FILE) or []
+        reported = [h for h in helpers if h.get("report")]
+        if not reported:
+            await call.message.edit_text("❌ اکانتی یافت نشد.", reply_markup=accounts_status_menu())
+            await call.answer()
+            return
+        text = "❌ اکانت‌های ریپورت شده:\n\n"
+        for i, h in enumerate(reported, 1):
+            text += f"{i}. {h.get('phone')}\n"
+        await call.message.edit_text(text, reply_markup=accounts_status_menu())
+        await call.answer()
+        return
+
+    if data == "acc_status_deleted":
+        helpers = load_json(HELPERS_FILE) or []
+        deleted = [h for h in helpers if h.get("deleted")]
+        if not deleted:
+            await call.message.edit_text("🗑 اکانتی یافت نشد.", reply_markup=accounts_status_menu())
+            await call.answer()
+            return
+        text = "🗑 اکانت‌های دیلیت شده:\n\n"
+        for i, h in enumerate(deleted, 1):
+            text += f"{i}. {h.get('phone')}\n"
+        await call.message.edit_text(text, reply_markup=accounts_status_menu())
+        await call.answer()
+        return
+
+    if data == "acc_status_recovering":
+        helpers = load_json(HELPERS_FILE) or []
+        recovering = [h for h in helpers if h.get("recovering")]
+        if not recovering:
+            await call.message.edit_text("🔄 اکانتی یافت نشد.", reply_markup=accounts_status_menu())
+            await call.answer()
+            return
+        text = "🔄 اکانت‌های در حال ریکاوری:\n\n"
+        for i, h in enumerate(recovering, 1):
+            text += f"{i}. {h.get('phone')}\n"
+        await call.message.edit_text(text, reply_markup=accounts_status_menu())
+        await call.answer()
+        return
+
     if data == "stats_yearly":
-        stats = load_json(STATS_FILE) or {}
-        yearly = stats.get("yearly", {})
-        text = "📅 آمار ارسال سالانه:\n"
-        if not yearly:
-            text += "⚠️ داده‌ای موجود نیست."
-        else:
-            for year, count in sorted(yearly.items()):
-                text += f"{year}: {count}\n"
+        stats = load_json(STATS_FILE) or {"yearly": {}}
+        text = "📅 آمار سالانه:\n\n"
+        for year, count in stats.get("yearly", {}).items():
+            text += f"{year}: {count}\n"
         await call.message.edit_text(text, reply_markup=stats_menu())
         await call.answer()
         return
 
     if data == "stats_monthly":
-        stats = load_json(STATS_FILE) or {}
-        monthly = stats.get("monthly", {})
-        text = "📆 آمار ارسال ماهانه:\n"
-        if not monthly:
-            text += "⚠️ داده‌ای موجود نیست."
-        else:
-            for month, count in sorted(monthly.items()):
-                text += f"{month}: {count}\n"
+        stats = load_json(STATS_FILE) or {"monthly": {}}
+        text = "📆 آمار ماهانه:\n\n"
+        for month, count in stats.get("monthly", {}).items():
+            text += f"{month}: {count}\n"
         await call.message.edit_text(text, reply_markup=stats_menu())
         await call.answer()
         return
 
     if data == "stats_daily":
-        stats = load_json(STATS_FILE) or {}
-        daily = stats.get("daily", {})
-        text = "📈 آمار ارسال روزانه:\n"
-        if not daily:
-            text += "⚠️ داده‌ای موجود نیست."
-        else:
-            for day, count in sorted(daily.items()):
-                text += f"{day}: {count}\n"
+        stats = load_json(STATS_FILE) or {"daily": {}}
+        text = "📈 آمار روزانه:\n\n"
+        for day, count in stats.get("daily", {}).items():
+            text += f"{day}: {count}\n"
         await call.message.edit_text(text, reply_markup=stats_menu())
         await call.answer()
         return
 
-# --- دریافت پیام‌ها ---
+    # دریافت یوزرنیم‌ها، آنالیز و سایر موارد در آینده اضافه می‌شود.
+
+# --- دریافت پیام‌ها برای تکمیل عملیات ---
 @bot.on_message(filters.private & filters.incoming)
 async def private_message_handler(client, message: Message):
     user_id = message.from_user.id
     state = user_states.get(user_id)
 
-    # فقط OWNER دسترسی دارد
     if user_id != OWNER_ID:
         return
 
-    # دریافت شماره اکانت هلپر
+    # دریافت شماره برای ثبت هلپر
     if state == "awaiting_phone":
         phone = message.text.strip()
-        # بررسی صحت شماره
         if not (phone.startswith("+98") and phone[1:].isdigit()):
             await message.reply("شماره صحیح نیست. لطفاً با +98 وارد کنید.")
             return
-        # ذخیره موقت شماره
         temp_data[user_id] = {"phone": phone}
         user_states[user_id] = "awaiting_otp"
-        await message.reply("لطفاً کد فعال‌سازی (کد OTP) را ارسال کنید (مثال: 45_788).")
+        await message.reply("لطفاً کد ارسال شده به تلگرام را ارسال کنید (مثال: 45_788).")
         return
 
-    # دریافت کد OTP
+    # دریافت کد OTP و ورود هلپر
     if state == "awaiting_otp":
         otp_raw = message.text.strip()
         otp = fix_otp_code(otp_raw)
@@ -449,21 +471,17 @@ async def private_message_handler(client, message: Message):
 
         phone = temp_data[user_id]["phone"]
 
-        # اتصال هلپر
-        helper_client = await connect_helper(phone)
+        helper_client = await login_helper_with_otp(phone, otp)
+
         if helper_client is None:
-            await message.reply("خطا در اتصال به اکانت هلپر. مجدداً تلاش کنید.")
-            user_states.pop(user_id, None)
-            temp_data.pop(user_id, None)
+            await message.reply("ورود موفق نبود، لطفاً شماره را دوباره ارسال کنید.")
+            user_states[user_id] = "awaiting_phone"
             return
 
-        # ذخیره اکانت در فایل helpers.json
         helpers = load_json(HELPERS_FILE) or []
-        # اگر شماره قبلا ثبت شده بود حذف کن
         helpers = [h for h in helpers if h.get("phone") != phone]
         helpers.append({
             "phone": phone,
-            "otp": otp,
             "report": False,
             "deleted": False,
             "recovering": False,
@@ -477,43 +495,43 @@ async def private_message_handler(client, message: Message):
         await message.reply(f"اکانت هلپر {phone} با موفقیت ثبت شد.", reply_markup=main_menu())
         return
 
-    # ثبت گروه جدید برای اتک
-    if state == "awaiting_attack_group":
-        group_title = message.text.strip()
+    # دریافت اطلاعات گروه جدید
+    if state == "awaiting_new_group":
+        text = message.text.strip()
+        if "|" not in text:
+            await message.reply("فرمت اشتباه است. لطفاً به صورت `آیدی گروه | نام گروه` ارسال کنید.")
+            return
+        chat_id_str, title = map(str.strip, text.split("|", 1))
+        if not chat_id_str.startswith("-100") or not chat_id_str[1:].isdigit():
+            await message.reply("آیدی گروه باید عددی و با -100 شروع شود.")
+            return
+        chat_id = int(chat_id_str)
         groups = load_json(ATTACK_GROUPS_FILE) or []
-        # چک اگر گروه با همین نام قبلا بود حذفش کن
-        groups = [g for g in groups if g.get("title") != group_title]
-        groups.append({
-            "title": group_title,
-            "chat_id": None,
-            "attacked": False,
-            "added_at": datetime.now().isoformat()
-        })
+        groups.append({"chat_id": chat_id, "title": title, "attacked": False})
         save_json(ATTACK_GROUPS_FILE, groups)
         user_states.pop(user_id, None)
-        await message.reply(f"گروه '{group_title}' ثبت شد. برای تنظیم آیدی گروه از دستور /set_group_id استفاده کنید.", reply_markup=attack_menu())
+        await message.reply(f"گروه '{title}' با موفقیت ثبت شد.", reply_markup=attack_menu())
         return
 
-    # دریافت متن اتک همگانی
-    if state == "awaiting_mass_attack_text":
-        attack_text = message.text.strip()
-        user_states.pop(user_id, None)
-        await message.reply("در حال ارسال اتک همگانی، لطفاً منتظر بمانید...")
-        success, results = await mass_attack(attack_text)
+    # دریافت پیام برای اتک همگانی
+    if state == "awaiting_mass_message":
+        msg = message.text.strip()
+        success, results = await mass_attack(msg)
         if not success:
             await message.reply(f"خطا: {results}")
+            user_states.pop(user_id, None)
             return
-        # نمایش گزارش خلاصه
-        report_text = "گزارش اتک همگانی:\n\n"
-        for phone, title, success, error in results:
+
+        text = "🚀 نتیجه اتک همگانی:\n\n"
+        for phone, group_title, success, error in results:
             status = "✅ موفق" if success else f"❌ ناموفق ({error})"
-            report_text += f"{phone} → {title}: {status}\n"
-        await message.reply(report_text, reply_markup=attack_menu())
+            text += f"{phone} → {group_title}: {status}\n"
+
+        user_states.pop(user_id, None)
+        await message.reply(text, reply_markup=attack_menu())
         return
 
-# --- دستورات ربات ---
-
-# حذف اکانت هلپر
+# --- دستورات حذف اکانت و مشاهده لاگ‌ها ---
 @bot.on_message(filters.private & filters.command("delete_helper"))
 async def delete_helper_cmd(client, message: Message):
     if message.from_user.id != OWNER_ID:
@@ -526,7 +544,6 @@ async def delete_helper_cmd(client, message: Message):
     delete_helper_account(phone)
     await message.reply(f"اکانت {phone} حذف شد.", reply_markup=main_menu())
 
-# مشاهده لاگ‌ها
 @bot.on_message(filters.private & filters.command("view_logs"))
 async def view_logs_cmd(client, message: Message):
     if message.from_user.id != OWNER_ID:
@@ -542,33 +559,8 @@ async def view_logs_cmd(client, message: Message):
         return
     text = f"📜 لاگ‌های اکانت {phone}:\n\n"
     for log in logs[-10:]:
-        text += f"{log['timestamp']} - {log['group']} - {log['status']}\n"
+        text += f"{log.get('timestamp', '')} - {log.get('group', '')} - {log.get('status', '')}\n"
     await message.reply(text, reply_markup=accounts_status_menu())
-
-# ست کردن آیدی گروه
-@bot.on_message(filters.private & filters.command("set_group_id"))
-async def set_group_id_cmd(client, message: Message):
-    if message.from_user.id != OWNER_ID:
-        return
-    args = message.text.split()
-    if len(args) != 3:
-        await message.reply("استفاده صحیح: /set_group_id <عنوان گروه> <آیدی عددی>")
-        return
-    group_title = args[1]
-    chat_id = args[2]
-    groups = load_json(ATTACK_GROUPS_FILE) or []
-    found = False
-    for g in groups:
-        if g.get("title") == group_title:
-            g["chat_id"] = int(chat_id)
-            g["attacked"] = False
-            found = True
-            break
-    if not found:
-        await message.reply("گروهی با این عنوان یافت نشد.")
-        return
-    save_json(ATTACK_GROUPS_FILE, groups)
-    await message.reply(f"آیدی گروه '{group_title}' با موفقیت تنظیم شد.", reply_markup=attack_menu())
 
 # --- اجرای ربات ---
 if __name__ == "__main__":
