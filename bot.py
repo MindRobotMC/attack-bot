@@ -89,8 +89,7 @@ async def callback_handler(client: Client, call: CallbackQuery):
         if not logs_list:
             await call.message.edit_text(f"📝 لاگی برای {phone} یافت نشد.", reply_markup=main_menu())
             return await call.answer()
-        text = f"📄 آخرین لاگ‌های اکانت {phone}:
-\n"
+        text = f"📄 آخرین لاگ‌های اکانت {phone}:\n\n"
         for log in logs_list[-10:]:
             ts = log["timestamp"]
             act = log["action"]
@@ -104,8 +103,7 @@ async def callback_handler(client: Client, call: CallbackQuery):
         if not all_stats:
             await call.message.edit_text("📉 آماری ثبت نشده است.", reply_markup=main_menu())
             return await call.answer()
-        text = "📊 آمار کلی:
-\n"
+        text = "📊 آمار کلی:\n\n"
         for key, val in all_stats.items():
             text += f"🔹 {key}: {val}\n"
         await call.message.edit_text(text, reply_markup=main_menu())
@@ -113,8 +111,7 @@ async def callback_handler(client: Client, call: CallbackQuery):
 
     if data == "menu_attack":
         results = await attacks.mass_attack(helper_clients, message="سلام به همه!", media_type="text")
-        text = "نتایج ارسال پیام:
-\n"
+        text = "نتایج ارسال پیام:\n\n"
         for phone, group_result in results.items():
             text += f"📱 {phone}:\n"
             for group, success in group_result.items():
@@ -135,7 +132,7 @@ async def handle_text(client: Client, message: Message):
 
     if state == "awaiting_phone":
         phone = utils.clean_phone_number(message.text.strip())
-        if not phone.startswith("+98") or not phone[1:].isdigit():
+        if not (phone.startswith("+98") and phone[1:].isdigit()):
             return await message.reply("شماره صحیح نیست. با +98 وارد کنید.")
         temp_data[user_id] = {"phone": phone}
         user_states[user_id] = "awaiting_otp"
