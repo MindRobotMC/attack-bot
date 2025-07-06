@@ -24,7 +24,8 @@ def initialize_db():
             recovering INTEGER DEFAULT 0,
             report_duration TEXT,
             report_end_time TEXT,
-            ready_time TEXT
+            ready_time TEXT,
+            added_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -35,7 +36,10 @@ def register_account(phone: str, username: str, name: Optional[str] = None) -> (
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO helpers (phone, username, name) VALUES (?, ?, ?)", (phone, username, name or ""))
+        cursor.execute(
+            "INSERT INTO helpers (phone, username, name) VALUES (?, ?, ?)",
+            (phone, username, name or "")
+        )
         conn.commit()
         return True, "اکانت با موفقیت ثبت شد."
     except sqlite3.IntegrityError:
@@ -68,7 +72,6 @@ def update_account(phone: str, data: dict) -> bool:
     params = []
     for key, value in data.items():
         fields.append(f"{key} = ?")
-        # چون فیلدهای بولی به صورت INTEGER ذخیره میشن، مقدار درست فرستاده شود
         if isinstance(value, bool):
             value = 1 if value else 0
         params.append(value)

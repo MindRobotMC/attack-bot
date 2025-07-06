@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Optional
-from modules.database import get_connection  # فرض می‌کنیم تابع اتصال به دیتابیس اینجاست
+from modules.database import get_connection  # تابع اتصال به دیتابیس
 
 def initialize_logs_table():
     conn = get_connection()
@@ -42,8 +42,9 @@ def get_all_operations() -> List[Dict]:
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM logs ORDER BY timestamp DESC")
     rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
     conn.close()
-    return [dict(zip([column[0] for column in cursor.description], row)) for row in rows]
+    return [dict(zip(columns, row)) for row in rows]
 
 def get_operations_by_account(phone: str) -> List[Dict]:
     """
@@ -53,8 +54,9 @@ def get_operations_by_account(phone: str) -> List[Dict]:
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM logs WHERE phone = ? ORDER BY timestamp DESC", (phone,))
     rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
     conn.close()
-    return [dict(zip([column[0] for column in cursor.description], row)) for row in rows]
+    return [dict(zip(columns, row)) for row in rows]
 
 # هنگام بارگذاری ماژول، جدول لاگ‌ها را ایجاد کن
 initialize_logs_table()

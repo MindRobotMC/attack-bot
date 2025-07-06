@@ -16,7 +16,7 @@ API_ID = 10423308
 API_HASH = "c887be025508282c815633a95d25e878"
 BOT_TOKEN = "8032544795:AAF6uK-SKxG5fzAWSUTRauqXor4YG7013Jk"
 
-# راه‌اندازی ربات
+# راه‌اندازی دیتابیس و ربات
 initialize_db()
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -49,7 +49,7 @@ def accounts_status_menu():
 async def start_handler(client: Client, message: Message):
     await message.reply("سلام! به ربات مدیریت هلپر خوش آمدید.", reply_markup=main_menu())
 
-# --- هندلر کال‌بک ---
+# --- هندلر کال‌بک‌ها ---
 @bot.on_callback_query()
 async def callback_handler(client: Client, call: CallbackQuery):
     data = call.data
