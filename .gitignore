@@ -1,0 +1,39 @@
+# Ignore config file with sensitive data
+config.py
+
+# Ignore Pyrogram session files
+*.session
+*.session-journal
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Virtual environment folder (اگر داری)
+venv/
+env/
+.venv/
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE files (اختیاری، برای بعضی ادیتورها)
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
