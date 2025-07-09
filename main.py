@@ -19,6 +19,7 @@ main_buttons = InlineKeyboardMarkup([
     [InlineKeyboardButton("💰 دریافت فروش نمایندگی", callback_data="reseller")]
 ])
 
+# منوی اکانت‌ها
 def account_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ اکانت‌های سالم", callback_data="acc_healthy")],
@@ -30,14 +31,17 @@ def account_menu():
         [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="back_main")]
     ])
 
+# فقط برای OWNER فعال باشد
 @bot.on_message(filters.command("start") & filters.user(OWNER_ID))
 async def start_owner(client, message):
     await message.reply("به منوی اصلی خوش آمدید:", reply_markup=main_buttons)
 
+# جلوگیری از دسترسی سایر افراد
 @bot.on_message(filters.command("start") & ~filters.user(OWNER_ID))
 async def start_other(client, message):
     await message.delete()
 
+# هندلر دکمه‌ها
 @bot.on_callback_query()
 async def callback_handler(client, query):
     data = query.data
@@ -57,8 +61,28 @@ async def callback_handler(client, query):
 
         await query.message.edit(text, reply_markup=account_menu())
 
+    elif data == "acc_reported":
+        accounts = get_accounts_by_status("reported")
+        if not accounts:
+            await query.message.edit("⛔ هیچ اکانت ریپورتی یافت نشد.", reply_markup=account_menu())
+            return
+
+        text = "⛔ لیست اکانت‌های ریپورتی:\n\n"
+        for acc in accounts:
+            duration = acc.get("report_duration", "نامشخص")
+            end_time = acc.get("report_end_time", "نامشخص")
+            text += (
+                f"شماره: {acc['phone']}\n"
+                f"یوزرنیم: @{acc['username']}\n"
+                f"مدت ریپورت: {duration} ساعت\n"
+                f"خروج از ریپورتی: {end_time}\n\n"
+            )
+
+        await query.message.edit(text, reply_markup=account_menu())
+
     elif data == "back_main":
         await query.message.edit("بازگشت به منوی اصلی:", reply_markup=main_buttons)
 
+# اجرای اولیه دیتابیس و ران کردن بات
 initialize_db()
 bot.run()
