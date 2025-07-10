@@ -1,19 +1,19 @@
-# main.py
 import os
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
-from pyrogram.errors import SessionPasswordNeeded
+from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PhoneNumberInvalid, FloodWait
+from asyncio import sleep
+
 from database import initialize_db, get_accounts_by_status, add_account
 import config
 
-from asyncio import sleep
-
 bot = Client("bot_session", api_id=config.API_ID, api_hash=config.API_HASH, bot_token=config.BOT_TOKEN)
-
 OWNER_ID = config.OWNER_ID
-user_states = {}
 
-# منوی اصلی
+user_states = {}
+user_sessions = {}
+
+# ---------------------- منوی اصلی ----------------------
 main_buttons = InlineKeyboardMarkup([
     [InlineKeyboardButton("📱 اکانت ها", callback_data="accounts")],
     [InlineKeyboardButton("👥 گروه ها", callback_data="groups")],
@@ -24,7 +24,6 @@ main_buttons = InlineKeyboardMarkup([
     [InlineKeyboardButton("💰 دریافت فروش نمایندگی", callback_data="reseller")]
 ])
 
-# منوی اکانت‌ها
 def account_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ اکانت‌های سالم", callback_data="acc_healthy")],
@@ -36,7 +35,7 @@ def account_menu():
         [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="back_main")]
     ])
 
-# استارت فقط برای مالک
+# ---------------------- استارت فقط برای مالک ----------------------
 @bot.on_message(filters.command("start") & filters.user(OWNER_ID))
 async def start_owner(client, message):
     await message.reply("به منوی اصلی خوش آمدید:", reply_markup=main_buttons)
@@ -45,7 +44,7 @@ async def start_owner(client, message):
 async def start_other(client, message):
     await message.delete()
 
-# مدیریت دکمه‌ها
+# ---------------------- دکمه‌ها ----------------------
 @bot.on_callback_query()
 async def callback_handler(client, query):
     data = query.data
@@ -66,55 +65,68 @@ async def callback_handler(client, query):
         await query.message.edit(text, reply_markup=account_menu())
 
     elif data == "acc_add":
-        await query.message.edit("لطفاً شماره اکانت را وارد کنید (با 98+):")
+        await query.message.edit("لطفاً شماره اکانت را وارد کنید (با 98 شروع شود):")
         user_states[query.from_user.id] = {"step": "awaiting_phone"}
 
     elif data == "back_main":
         await query.message.edit("بازگشت به منوی اصلی:", reply_markup=main_buttons)
 
-# مدیریت پیام‌ها برای ثبت اکانت جدید
+# ---------------------- ثبت اکانت جدید ----------------------
 @bot.on_message(filters.text & filters.user(OWNER_ID))
-async def handle_text(client, message: Message):
+async def handle_add_account(client, message: Message):
     user_id = message.from_user.id
     if user_id not in user_states:
         return
 
     state = user_states[user_id]
 
-    # مرحله اول: دریافت شماره
+    # مرحله دریافت شماره
     if state["step"] == "awaiting_phone":
         phone = message.text.strip()
-        state["phone"] = phone
-        state["step"] = "awaiting_code"
-        await message.reply("لطفاً کد دریافتی را به فرمت 12-345 ارسال کن:")
-        return
+        if not phone.startswith("98"):
+            await message.reply("❌ شماره باید با 98 شروع شود.")
+            return
 
-    # مرحله دوم: دریافت کد و لاگین
-    elif state["step"] == "awaiting_code":
-        code_input = message.text.strip()
-        if "-" in code_input:
-            parts = code_input.split("-")
-            code = "".join(parts)
-        else:
-            code = code_input
-
-        phone = state["phone"]
         session_name = f"sessions/{phone}"
-
         os.makedirs("sessions", exist_ok=True)
-        helper = Client(session_name, config.API_ID, config.API_HASH, phone_number=phone)
+
+        helper = Client(session_name, config.API_ID, config.API_HASH)
 
         try:
             await helper.connect()
             sent_code = await helper.send_code(phone)
-            await sleep(2)
-            await helper.sign_in(phone, code)
+            state.update({
+                "step": "awaiting_code",
+                "phone": phone,
+                "helper": helper,
+                "code_hash": sent_code.phone_code_hash
+            })
+            await message.reply("📨 کد ارسال شد. لطفاً کد را وارد کنید (مثلاً 12345):")
 
+        except PhoneNumberInvalid:
+            await message.reply("❌ شماره نامعتبر است.")
+            del user_states[user_id]
+        except FloodWait as e:
+            await message.reply(f"⏳ لطفاً {e.value} ثانیه صبر کنید.")
+            del user_states[user_id]
+        except Exception as e:
+            await message.reply(f"⚠️ خطا هنگام ارسال کد: {e}")
+            del user_states[user_id]
+
+    # مرحله دریافت کد ورود
+    elif state["step"] == "awaiting_code":
+        code_input = message.text.strip().replace("-", "")
+        phone = state["phone"]
+        code_hash = state["code_hash"]
+        helper: Client = state["helper"]
+
+        try:
+            await helper.sign_in(phone_number=phone, phone_code_hash=code_hash, phone_code=code_input)
             me = await helper.get_me()
-            username = me.username or "unknown"
-            name = me.first_name or "بدون‌نام"
 
-            # ثبت در دیتابیس
+            name = me.first_name or "بدون‌نام"
+            username = me.username or "unknown"
+
             add_account({
                 "name": name,
                 "username": username,
@@ -122,15 +134,18 @@ async def handle_text(client, message: Message):
                 "status": "healthy"
             })
 
-            await message.reply(f"✅ اکانت با موفقیت اضافه شد:\nنام: {name}\nیوزرنیم: @{username}")
-            del user_states[user_id]
+            await message.reply(f"✅ اکانت با موفقیت افزوده شد:\nنام: {name}\nیوزرنیم: @{username}")
+        except PhoneCodeInvalid:
+            await message.reply("❌ کد اشتباه است.")
+            return
         except SessionPasswordNeeded:
-            await message.reply("❗ این اکانت دارای رمز دوم است و لاگین ممکن نیست.")
+            await message.reply("🔐 ورود دو مرحله‌ای فعال است. لاگین ممکن نیست.")
         except Exception as e:
-            await message.reply(f"❌ خطا در ورود به اکانت: {e}")
+            await message.reply(f"❌ خطا در ورود: {e}")
         finally:
             await helper.disconnect()
+            del user_states[user_id]
 
-# شروع دیتابیس
+# ---------------------- اجرای اولیه ----------------------
 initialize_db()
 bot.run()
