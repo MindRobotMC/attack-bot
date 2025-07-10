@@ -1,4 +1,3 @@
-# database.py
 import sqlite3
 from typing import List, Dict
 from datetime import datetime
@@ -18,7 +17,7 @@ def initialize_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             username TEXT NOT NULL,
-            phone TEXT NOT NULL,
+            phone TEXT NOT NULL UNIQUE,
             status TEXT NOT NULL,
             report_duration INTEGER,
             report_end_time TEXT,
@@ -35,3 +34,37 @@ def get_accounts_by_status(status: str) -> List[Dict]:
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+def get_all_accounts() -> List[Dict]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM accounts")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def add_account(account_data: Dict):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR IGNORE INTO accounts 
+        (name, username, phone, status, report_duration, report_end_time, ready_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        account_data.get("name", "بدون‌نام"),
+        account_data.get("username", "unknown"),
+        account_data["phone"],
+        account_data.get("status", "healthy"),
+        account_data.get("report_duration"),
+        account_data.get("report_end_time"),
+        account_data.get("ready_time")
+    ))
+    conn.commit()
+    conn.close()
+
+def delete_account(phone: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM accounts WHERE phone = ?", (phone,))
+    conn.commit()
+    conn.close()
