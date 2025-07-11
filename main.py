@@ -6,7 +6,8 @@ from asyncio import sleep
 
 from database import (
     initialize_db, get_accounts_by_status, add_account,
-    delete_account, get_all_accounts
+    delete_account, get_all_accounts,
+    initialize_groups_table, add_group, delete_group, get_all_groups
 )
 import config
 
@@ -14,6 +15,7 @@ bot = Client("bot_session", api_id=config.API_ID, api_hash=config.API_HASH, bot_
 OWNER_ID = config.OWNER_ID
 
 user_states = {}
+group_states = {}
 
 # ---------------------- منوی اصلی ----------------------
 main_buttons = InlineKeyboardMarkup([
@@ -37,6 +39,14 @@ def account_menu():
         [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="back_main")]
     ])
 
+def groups_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 نمایش گروه‌ها", callback_data="show_groups")],
+        [InlineKeyboardButton("➕ افزودن گروه جدید", callback_data="add_group")],
+        [InlineKeyboardButton("❌ حذف گروه", callback_data="remove_group")],
+        [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="back_main")]
+    ])
+
 # ---------------------- /start فقط برای مالک ----------------------
 @bot.on_message(filters.command("start") & filters.user(OWNER_ID))
 async def start_owner(client, message):
@@ -51,6 +61,7 @@ async def start_other(client, message):
 async def callback_handler(client, query):
     data = query.data
 
+    # بخش اکانت‌ها
     if data == "accounts":
         await query.message.edit("📱 مدیریت اکانت‌ها:", reply_markup=account_menu())
 
@@ -59,11 +70,9 @@ async def callback_handler(client, query):
         if not accounts:
             await query.message.edit("✅ اکانت سالمی یافت نشد.", reply_markup=account_menu())
             return
-
         text = "✅ لیست اکانت‌های سالم:\n\n"
         for acc in accounts:
             text += f"نام: {acc['name']}\nیوزرنیم: @{acc['username']}\nشماره: {acc['phone']}\nوضعیت: آماده\n\n"
-
         await query.message.edit(text, reply_markup=account_menu())
 
     elif data == "acc_reported":
@@ -98,8 +107,7 @@ async def callback_handler(client, query):
         if not accounts:
             await query.message.edit("❌ هیچ اکانتی برای حذف وجود ندارد.", reply_markup=account_menu())
             return
-        buttons = [[InlineKeyboardButton(f"❌ {acc['phone']}", callback_data=f"delete_{acc['phone']}")]
-                   for acc in accounts]
+        buttons = [[InlineKeyboardButton(f"❌ {acc['phone']}", callback_data=f"delete_{acc['phone']}")] for acc in accounts]
         buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="accounts")])
         await query.message.edit("لطفاً اکانتی را برای حذف انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -107,21 +115,63 @@ async def callback_handler(client, query):
         phone = data.split("delete_")[1]
         delete_account(phone)
         await query.message.edit(f"✅ اکانت {phone} با موفقیت حذف شد.", reply_markup=account_menu())
-
-        # ارسال گزارش حذف اکانت به گروه لاگ
         try:
-            await bot.send_message(
-                config.LOG_GROUP_ID,
-                f"❌ اکانت حذف شد:\n📞 {phone}"
-            )
+            await bot.send_message(config.LOG_GROUP_ID, f"❌ اکانت حذف شد:\n📞 {phone}")
         except Exception as e:
             print(f"خطا در ارسال لاگ حذف اکانت: {e}")
 
     elif data == "acc_logs":
         await query.message.edit("📄 بخش لاگ‌ها به‌زودی اضافه می‌شود...", reply_markup=account_menu())
 
+    # بخش گروه‌ها
+    elif data == "groups":
+        await query.message.edit("👥 مدیریت گروه‌ها:", reply_markup=groups_menu())
+
+    elif data == "show_groups":
+        groups = get_all_groups()
+        if not groups:
+            await query.message.edit("📋 گروهی یافت نشد.", reply_markup=groups_menu())
+            return
+        text = "📋 لیست گروه‌ها:\n\n"
+        for g in groups:
+            text += f"- {g}\n"
+        await query.message.edit(text, reply_markup=groups_menu())
+
+    elif data == "add_group":
+        await query.message.edit("➕ لطفاً آیدی یا نام گروه جدید را ارسال کنید:")
+        group_states[query.from_user.id] = {"step": "awaiting_new_group"}
+
+    elif data == "remove_group":
+        groups = get_all_groups()
+        if not groups:
+            await query.message.edit("❌ گروهی برای حذف وجود ندارد.", reply_markup=groups_menu())
+            return
+        buttons = [[InlineKeyboardButton(f"❌ {g}", callback_data=f"delgroup_{g}")] for g in groups]
+        buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="groups")])
+        await query.message.edit("❌ لطفاً گروهی را برای حذف انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif data.startswith("delgroup_"):
+        group_name = data.split("delgroup_")[1]
+        delete_group(group_name)
+        await query.message.edit(f"✅ گروه '{group_name}' با موفقیت حذف شد.", reply_markup=groups_menu())
+
     elif data == "back_main":
         await query.message.edit("بازگشت به منوی اصلی:", reply_markup=main_buttons)
+
+# ---------------------- دریافت پیام برای افزودن گروه ----------------------
+@bot.on_message(filters.text & filters.user(OWNER_ID))
+async def handle_add_group(client, message: Message):
+    user_id = message.from_user.id
+    if user_id not in group_states:
+        return
+
+    state = group_states[user_id]
+
+    if state["step"] == "awaiting_new_group":
+        group_name = message.text.strip()
+        add_group(group_name)
+        await message.reply(f"✅ گروه '{group_name}' با موفقیت افزوده شد.")
+        del group_states[user_id]
 
 # ---------------------- ثبت اکانت جدید ----------------------
 @bot.on_message(filters.text & filters.user(OWNER_ID))
@@ -132,7 +182,6 @@ async def handle_add_account(client, message: Message):
 
     state = user_states[user_id]
 
-    # مرحله دریافت شماره
     if state["step"] == "awaiting_phone":
         phone = message.text.strip()
         if not phone.startswith("98"):
@@ -165,7 +214,6 @@ async def handle_add_account(client, message: Message):
             await message.reply(f"⚠️ خطا هنگام ارسال کد: {e}")
             del user_states[user_id]
 
-    # مرحله دریافت کد ورود
     elif state["step"] == "awaiting_code":
         code_input = message.text.strip().replace("-", "")
         phone = state["phone"]
@@ -188,7 +236,6 @@ async def handle_add_account(client, message: Message):
 
             await message.reply(f"✅ اکانت با موفقیت افزوده شد:\nنام: {name}\nیوزرنیم: @{username}")
 
-            # ارسال گزارش ثبت اکانت به گروه لاگ
             try:
                 await bot.send_message(
                     config.LOG_GROUP_ID,
@@ -210,4 +257,5 @@ async def handle_add_account(client, message: Message):
 
 # ---------------------- اجرای اولیه ----------------------
 initialize_db()
+initialize_groups_table()
 bot.run()

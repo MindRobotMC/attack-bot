@@ -9,6 +9,7 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+# ------------------- جدول اکانت‌ها -------------------
 def initialize_db():
     conn = get_connection()
     cursor = conn.cursor()
@@ -26,6 +27,7 @@ def initialize_db():
     """)
     conn.commit()
     conn.close()
+    initialize_group_table()  # ایجاد جدول گروه‌ها نیز همزمان
 
 def get_accounts_by_status(status: str) -> List[Dict]:
     conn = get_connection()
@@ -107,3 +109,38 @@ def update_report_info(phone: str, duration: Optional[int], end_time: Optional[s
     """, (duration, end_time, phone))
     conn.commit()
     conn.close()
+
+# ------------------- جدول گروه‌ها -------------------
+def initialize_group_table():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL UNIQUE
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def add_group(title: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO groups (title) VALUES (?)", (title,))
+    conn.commit()
+    conn.close()
+
+def delete_group(title: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM groups WHERE title = ?", (title,))
+    conn.commit()
+    conn.close()
+
+def get_all_groups() -> List[str]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT title FROM groups")
+    rows = cursor.fetchall()
+    conn.close()
+    return [row["title"] for row in rows]
