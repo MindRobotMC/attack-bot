@@ -4,14 +4,16 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PhoneNumberInvalid, FloodWait
 from asyncio import sleep
 
-from database import initialize_db, get_accounts_by_status, add_account
+from database import (
+    initialize_db, get_accounts_by_status, add_account,
+    delete_account, get_all_accounts
+)
 import config
 
 bot = Client("bot_session", api_id=config.API_ID, api_hash=config.API_HASH, bot_token=config.BOT_TOKEN)
 OWNER_ID = config.OWNER_ID
 
 user_states = {}
-user_sessions = {}
 
 # ---------------------- منوی اصلی ----------------------
 main_buttons = InlineKeyboardMarkup([
@@ -64,9 +66,46 @@ async def callback_handler(client, query):
 
         await query.message.edit(text, reply_markup=account_menu())
 
-    elif data == "acc_add":
-        await query.message.edit("لطفاً شماره اکانت را وارد کنید (با 98 شروع شود):")
-        user_states[query.from_user.id] = {"step": "awaiting_phone"}
+    elif data == "acc_reported":
+        accounts = get_accounts_by_status("reported")
+        if not accounts:
+            await query.message.edit("⛔ اکانت ریپورت شده‌ای وجود ندارد.", reply_markup=account_menu())
+            return
+        text = "⛔ لیست اکانت‌های ریپورت:\n\n"
+        for acc in accounts:
+            duration = acc.get("report_duration") or "نامشخص"
+            end_time = acc.get("report_end_time") or "نامشخص"
+            text += f"نام: {acc['name']}\nیوزرنیم: @{acc['username']}\nشماره: {acc['phone']}\nمدت: {duration} ساعت\nتا: {end_time}\n\n"
+        await query.message.edit(text, reply_markup=account_menu())
+
+    elif data == "acc_recovering":
+        accounts = get_accounts_by_status("recovering")
+        if not accounts:
+            await query.message.edit("🕓 اکانت در حال ریکاوری وجود ندارد.", reply_markup=account_menu())
+            return
+        text = "🕓 لیست اکانت‌های در حال ریکاوری:\n\n"
+        for acc in accounts:
+            ready_time = acc.get("ready_time") or "نامشخص"
+            text += f"نام: {acc['name']}\nشماره: {acc['phone']}\nآماده در: {ready_time}\n\n"
+        await query.message.edit(text, reply_markup=account_menu())
+
+    elif data == "acc_remove":
+        accounts = get_all_accounts()
+        if not accounts:
+            await query.message.edit("❌ هیچ اکانتی برای حذف وجود ندارد.", reply_markup=account_menu())
+            return
+        buttons = [[InlineKeyboardButton(f"❌ {acc['phone']}", callback_data=f"delete_{acc['phone']}")]
+                   for acc in accounts]
+        buttons.append([InlineKeyboardButton("🔙 بازگشت", callback_data="accounts")])
+        await query.message.edit("لطفاً اکانتی را برای حذف انتخاب کنید:", reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif data.startswith("delete_"):
+        phone = data.split("delete_")[1]
+        delete_account(phone)
+        await query.message.edit(f"✅ اکانت {phone} با موفقیت حذف شد.", reply_markup=account_menu())
+
+    elif data == "acc_logs":
+        await query.message.edit("📄 بخش لاگ‌ها به‌زودی اضافه می‌شود...", reply_markup=account_menu())
 
     elif data == "back_main":
         await query.message.edit("بازگشت به منوی اصلی:", reply_markup=main_buttons)
@@ -101,7 +140,7 @@ async def handle_add_account(client, message: Message):
                 "helper": helper,
                 "code_hash": sent_code.phone_code_hash
             })
-            await message.reply("📨 کد ارسال شد. لطفاً کد را وارد کنید (مثلاً 12345):")
+            await message.reply("📨 کد ارسال شد. لطفاً کد را به‌صورت 123-45 وارد کنید:")
 
         except PhoneNumberInvalid:
             await message.reply("❌ شماره نامعتبر است.")

@@ -1,5 +1,5 @@
 import sqlite3
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 
 DB_NAME = "accounts.db"
@@ -66,5 +66,43 @@ def delete_account(phone: str):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM accounts WHERE phone = ?", (phone,))
+    conn.commit()
+    conn.close()
+
+def update_account_status(phone: str, status: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE accounts SET status = ? WHERE phone = ?", (status, phone))
+    conn.commit()
+    conn.close()
+
+def get_reported_accounts() -> List[Dict]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM accounts WHERE status = 'reported'")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_recovering_accounts() -> List[Dict]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM accounts WHERE status = 'recovering'")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def account_exists(phone: str) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM accounts WHERE phone = ?", (phone,))
+    exists = cursor.fetchone() is not None
+    conn.close()
+    return exists
+
+def update_ready_time(phone: str, ready_time: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE accounts SET ready_time = ? WHERE phone = ?", (ready_time, phone))
     conn.commit()
     conn.close()
