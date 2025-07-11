@@ -2,12 +2,11 @@ import os
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PhoneNumberInvalid, FloodWait
-from asyncio import sleep
 
 from database import (
     initialize_db, get_accounts_by_status, add_account,
     delete_account, get_all_accounts,
-    initialize_groups_table, add_group, delete_group, get_all_groups
+    initialize_group_table, add_group, delete_group, get_all_groups
 )
 import config
 
@@ -61,7 +60,6 @@ async def start_other(client, message):
 async def callback_handler(client, query):
     data = query.data
 
-    # بخش اکانت‌ها
     if data == "accounts":
         await query.message.edit("📱 مدیریت اکانت‌ها:", reply_markup=account_menu())
 
@@ -123,7 +121,6 @@ async def callback_handler(client, query):
     elif data == "acc_logs":
         await query.message.edit("📄 بخش لاگ‌ها به‌زودی اضافه می‌شود...", reply_markup=account_menu())
 
-    # بخش گروه‌ها
     elif data == "groups":
         await query.message.edit("👥 مدیریت گروه‌ها:", reply_markup=groups_menu())
 
@@ -158,104 +155,91 @@ async def callback_handler(client, query):
     elif data == "back_main":
         await query.message.edit("بازگشت به منوی اصلی:", reply_markup=main_buttons)
 
-# ---------------------- دریافت پیام برای افزودن گروه ----------------------
+# ---------------------- پیام گروه ----------------------
 @bot.on_message(filters.text & filters.user(OWNER_ID))
-async def handle_add_group(client, message: Message):
+async def handle_text(client, message: Message):
     user_id = message.from_user.id
-    if user_id not in group_states:
-        return
 
-    state = group_states[user_id]
+    if user_id in group_states:
+        state = group_states[user_id]
+        if state["step"] == "awaiting_new_group":
+            group_name = message.text.strip()
+            add_group(group_name)
+            await message.reply(f"✅ گروه '{group_name}' با موفقیت افزوده شد.")
+            del group_states[user_id]
 
-    if state["step"] == "awaiting_new_group":
-        group_name = message.text.strip()
-        add_group(group_name)
-        await message.reply(f"✅ گروه '{group_name}' با موفقیت افزوده شد.")
-        del group_states[user_id]
+    elif user_id in user_states:
+        state = user_states[user_id]
 
-# ---------------------- ثبت اکانت جدید ----------------------
-@bot.on_message(filters.text & filters.user(OWNER_ID))
-async def handle_add_account(client, message: Message):
-    user_id = message.from_user.id
-    if user_id not in user_states:
-        return
+        if state["step"] == "awaiting_phone":
+            phone = message.text.strip()
+            if not phone.startswith("98"):
+                await message.reply("❌ شماره باید با 98 شروع شود.")
+                return
 
-    state = user_states[user_id]
-
-    if state["step"] == "awaiting_phone":
-        phone = message.text.strip()
-        if not phone.startswith("98"):
-            await message.reply("❌ شماره باید با 98 شروع شود.")
-            return
-
-        session_name = f"sessions/{phone}"
-        os.makedirs("sessions", exist_ok=True)
-
-        helper = Client(session_name, config.API_ID, config.API_HASH)
-
-        try:
-            await helper.connect()
-            sent_code = await helper.send_code(phone)
-            state.update({
-                "step": "awaiting_code",
-                "phone": phone,
-                "helper": helper,
-                "code_hash": sent_code.phone_code_hash
-            })
-            await message.reply("📨 کد ارسال شد. لطفاً کد را به‌صورت 123-45 وارد کنید:")
-
-        except PhoneNumberInvalid:
-            await message.reply("❌ شماره نامعتبر است.")
-            del user_states[user_id]
-        except FloodWait as e:
-            await message.reply(f"⏳ لطفاً {e.value} ثانیه صبر کنید.")
-            del user_states[user_id]
-        except Exception as e:
-            await message.reply(f"⚠️ خطا هنگام ارسال کد: {e}")
-            del user_states[user_id]
-
-    elif state["step"] == "awaiting_code":
-        code_input = message.text.strip().replace("-", "")
-        phone = state["phone"]
-        code_hash = state["code_hash"]
-        helper: Client = state["helper"]
-
-        try:
-            await helper.sign_in(phone_number=phone, phone_code_hash=code_hash, phone_code=code_input)
-            me = await helper.get_me()
-
-            name = me.first_name or "بدون‌نام"
-            username = me.username or "unknown"
-
-            add_account({
-                "name": name,
-                "username": username,
-                "phone": phone,
-                "status": "healthy"
-            })
-
-            await message.reply(f"✅ اکانت با موفقیت افزوده شد:\nنام: {name}\nیوزرنیم: @{username}")
+            session_name = f"sessions/{phone}"
+            os.makedirs("sessions", exist_ok=True)
+            helper = Client(session_name, config.API_ID, config.API_HASH)
 
             try:
-                await bot.send_message(
-                    config.LOG_GROUP_ID,
-                    f"📥 اکانت جدید ثبت شد:\n👤 {name}\n📞 {phone}\n🔗 @{username}"
-                )
-            except Exception as e:
-                print(f"خطا در ارسال لاگ ثبت اکانت: {e}")
+                await helper.connect()
+                sent_code = await helper.send_code(phone)
+                state.update({
+                    "step": "awaiting_code",
+                    "phone": phone,
+                    "helper": helper,
+                    "code_hash": sent_code.phone_code_hash
+                })
+                await message.reply("📨 کد ارسال شد. لطفاً کد را به‌صورت 123-45 وارد کنید:")
 
-        except PhoneCodeInvalid:
-            await message.reply("❌ کد اشتباه است.")
-            return
-        except SessionPasswordNeeded:
-            await message.reply("🔐 ورود دو مرحله‌ای فعال است. لاگین ممکن نیست.")
-        except Exception as e:
-            await message.reply(f"❌ خطا در ورود: {e}")
-        finally:
-            await helper.disconnect()
-            del user_states[user_id]
+            except PhoneNumberInvalid:
+                await message.reply("❌ شماره نامعتبر است.")
+                del user_states[user_id]
+            except FloodWait as e:
+                await message.reply(f"⏳ لطفاً {e.value} ثانیه صبر کنید.")
+                del user_states[user_id]
+            except Exception as e:
+                await message.reply(f"⚠️ خطا هنگام ارسال کد: {e}")
+                del user_states[user_id]
+
+        elif state["step"] == "awaiting_code":
+            code_input = message.text.strip().replace("-", "")
+            phone = state["phone"]
+            code_hash = state["code_hash"]
+            helper: Client = state["helper"]
+
+            try:
+                await helper.sign_in(phone_number=phone, phone_code_hash=code_hash, phone_code=code_input)
+                me = await helper.get_me()
+                name = me.first_name or "بدون‌نام"
+                username = me.username or "unknown"
+
+                add_account({
+                    "name": name,
+                    "username": username,
+                    "phone": phone,
+                    "status": "healthy"
+                })
+
+                await message.reply(f"✅ اکانت با موفقیت افزوده شد:\nنام: {name}\nیوزرنیم: @{username}")
+
+                try:
+                    await bot.send_message(config.LOG_GROUP_ID, f"📥 اکانت جدید ثبت شد:\n👤 {name}\n📞 {phone}\n🔗 @{username}")
+                except Exception as e:
+                    print(f"خطا در ارسال لاگ ثبت اکانت: {e}")
+
+            except PhoneCodeInvalid:
+                await message.reply("❌ کد اشتباه است.")
+                return
+            except SessionPasswordNeeded:
+                await message.reply("🔐 ورود دو مرحله‌ای فعال است. لاگین ممکن نیست.")
+            except Exception as e:
+                await message.reply(f"❌ خطا در ورود: {e}")
+            finally:
+                await helper.disconnect()
+                del user_states[user_id]
 
 # ---------------------- اجرای اولیه ----------------------
 initialize_db()
-initialize_groups_table()
+initialize_group_table()
 bot.run()
