@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+from pyrogram import idle
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PhoneNumberInvalid, FloodWait
@@ -328,7 +329,7 @@ async def main():
     initialize_db()  # sync و بدون await
     await bot.start()
     print("ربات آماده است.")
-    await bot.idle()
+    await idle()
 
 if __name__ == "__main__":
     asyncio.run(main())
