@@ -1,24 +1,105 @@
 import os
 import re
 import asyncio
-from pyrogram import Client, filters
+import aiosqlite
+from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PhoneNumberInvalid, FloodWait
 
-from database import (
-    initialize_db, get_accounts_by_status, add_account,
-    delete_account, get_all_accounts,
-    initialize_group_table, add_group, delete_group, get_all_groups
-)
 import config
 
-bot = Client("bot_session", api_id=config.API_ID, api_hash=config.API_HASH, bot_token=config.BOT_TOKEN)
+DB_NAME = "accounts.db"
 OWNER_ID = config.OWNER_ID
 
+bot = Client("bot_session", api_id=config.API_ID, api_hash=config.API_HASH, bot_token=config.BOT_TOKEN)
 user_states = {}
 group_states = {}
+db_lock = asyncio.Lock()
 
-# ---------------------- منوی اصلی ----------------------
+# ---------------------- عملیات دیتابیس ----------------------
+
+async def init_db():
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    phone TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    report_duration INTEGER,
+                    report_end_time TEXT,
+                    ready_time TEXT
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL UNIQUE
+                )
+            """)
+            await db.commit()
+
+async def get_accounts_by_status(status: str):
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            cursor = await db.execute("SELECT * FROM accounts WHERE status = ?", (status,))
+            rows = await cursor.fetchall()
+            return [dict(zip([column[0] for column in cursor.description], row)) for row in rows]
+
+async def get_all_accounts():
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            cursor = await db.execute("SELECT * FROM accounts")
+            rows = await cursor.fetchall()
+            return [dict(zip([column[0] for column in cursor.description], row)) for row in rows]
+
+async def add_account(account):
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("""
+                INSERT OR IGNORE INTO accounts 
+                (name, username, phone, status, report_duration, report_end_time, ready_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                account.get("name", "بدون‌نام"),
+                account.get("username", "unknown"),
+                account["phone"],
+                account.get("status", "healthy"),
+                account.get("report_duration"),
+                account.get("report_end_time"),
+                account.get("ready_time")
+            ))
+            await db.commit()
+
+async def delete_account(phone):
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("DELETE FROM accounts WHERE phone = ?", (phone,))
+            await db.commit()
+
+async def add_group(title):
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("INSERT OR IGNORE INTO groups (title) VALUES (?)", (title,))
+            await db.commit()
+
+async def delete_group(title):
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("DELETE FROM groups WHERE title = ?", (title,))
+            await db.commit()
+
+async def get_all_groups():
+    async with db_lock:
+        async with aiosqlite.connect(DB_NAME) as db:
+            cursor = await db.execute("SELECT title FROM groups")
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+
+# ---------------------- منوها ----------------------
+
 main_buttons = InlineKeyboardMarkup([
     [InlineKeyboardButton("📱 اکانت ها", callback_data="accounts")],
     [InlineKeyboardButton("👥 گروه ها", callback_data="groups")],
@@ -56,7 +137,8 @@ def analyze_menu():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
     ])
 
-# ---------------------- /start فقط برای مالک ----------------------
+# ---------------------- فرمان start ----------------------
+
 @bot.on_message(filters.command("start") & filters.user(OWNER_ID))
 async def start_owner(client, message):
     await message.reply("به منوی اصلی خوش آمدید:", reply_markup=main_buttons)
@@ -65,7 +147,8 @@ async def start_owner(client, message):
 async def start_other(client, message):
     await message.delete()
 
-# ---------------------- دکمه‌ها ----------------------
+# ---------------------- مدیریت دکمه‌ها ----------------------
+
 @bot.on_callback_query()
 async def callback_handler(client, query):
     data = query.data
@@ -74,7 +157,7 @@ async def callback_handler(client, query):
         await query.message.edit("📱 مدیریت اکانت‌ها:", reply_markup=account_menu())
 
     elif data == "acc_healthy":
-        accounts = get_accounts_by_status("healthy")
+        accounts = await get_accounts_by_status("healthy")
         if not accounts:
             await query.message.edit("✅ اکانت سالمی یافت نشد.", reply_markup=account_menu())
             return
@@ -84,7 +167,7 @@ async def callback_handler(client, query):
         await query.message.edit(text, reply_markup=account_menu())
 
     elif data == "acc_reported":
-        accounts = get_accounts_by_status("reported")
+        accounts = await get_accounts_by_status("reported")
         if not accounts:
             await query.message.edit("⛔ اکانت ریپورت شده‌ای وجود ندارد.", reply_markup=account_menu())
             return
@@ -96,7 +179,7 @@ async def callback_handler(client, query):
         await query.message.edit(text, reply_markup=account_menu())
 
     elif data == "acc_recovering":
-        accounts = get_accounts_by_status("recovering")
+        accounts = await get_accounts_by_status("recovering")
         if not accounts:
             await query.message.edit("🕓 اکانت در حال ریکاوری وجود ندارد.", reply_markup=account_menu())
             return
@@ -111,7 +194,7 @@ async def callback_handler(client, query):
         user_states[query.from_user.id] = {"step": "awaiting_phone"}
 
     elif data == "acc_remove":
-        accounts = get_all_accounts()
+        accounts = await get_all_accounts()
         if not accounts:
             await query.message.edit("❌ هیچ اکانتی برای حذف وجود ندارد.", reply_markup=account_menu())
             return
@@ -121,7 +204,7 @@ async def callback_handler(client, query):
 
     elif data.startswith("delete_"):
         phone = data.split("delete_")[1]
-        delete_account(phone)
+        await delete_account(phone)
         await query.message.edit(f"✅ اکانت {phone} با موفقیت حذف شد.", reply_markup=account_menu())
         try:
             await bot.send_message(config.LOG_GROUP_ID, f"❌ اکانت حذف شد:\n📞 {phone}")
@@ -135,7 +218,7 @@ async def callback_handler(client, query):
         await query.message.edit("👥 مدیریت گروه‌ها:", reply_markup=groups_menu())
 
     elif data == "show_groups":
-        groups = get_all_groups()
+        groups = await get_all_groups()
         if not groups:
             await query.message.edit("📋 گروهی یافت نشد.", reply_markup=groups_menu())
             return
@@ -149,7 +232,7 @@ async def callback_handler(client, query):
         group_states[query.from_user.id] = {"step": "awaiting_new_group"}
 
     elif data == "remove_group":
-        groups = get_all_groups()
+        groups = await get_all_groups()
         if not groups:
             await query.message.edit("❌ گروهی برای حذف وجود ندارد.", reply_markup=groups_menu())
             return
@@ -159,7 +242,7 @@ async def callback_handler(client, query):
 
     elif data.startswith("delgroup_"):
         group_name = data.split("delgroup_")[1]
-        delete_group(group_name)
+        await delete_group(group_name)
         await query.message.edit(f"✅ گروه '{group_name}' با موفقیت حذف شد.", reply_markup=groups_menu())
 
     elif data == "analyze":
@@ -176,7 +259,8 @@ async def callback_handler(client, query):
     elif data == "back_main":
         await query.message.edit("بازگشت به منوی اصلی:", reply_markup=main_buttons)
 
-# ---------------------- پیام گروه ----------------------
+# ---------------------- مدیریت پیام‌ها ----------------------
+
 @bot.on_message(filters.text & filters.user(OWNER_ID))
 async def handle_text(client, message: Message):
     user_id = message.from_user.id
@@ -186,12 +270,13 @@ async def handle_text(client, message: Message):
         state = group_states[user_id]
         if state["step"] == "awaiting_new_group":
             group_name = message.text.strip()
-            add_group(group_name)
+            await add_group(group_name)
             await message.reply(f"✅ گروه '{group_name}' با موفقیت افزوده شد.")
             del group_states[user_id]
+        return
 
     # مدیریت مراحل مختلف کاربر
-    elif user_id in user_states:
+    if user_id in user_states:
         state = user_states[user_id]
 
         if state["step"] == "awaiting_phone":
@@ -237,7 +322,7 @@ async def handle_text(client, message: Message):
                 name = me.first_name or "بدون‌نام"
                 username = me.username or "unknown"
 
-                add_account({
+                await add_account({
                     "name": name,
                     "username": username,
                     "phone": phone,
@@ -262,10 +347,9 @@ async def handle_text(client, message: Message):
                 await helper.disconnect()
                 del user_states[user_id]
 
-        # افزودن مراحل جدید آنالیز
         elif state["step"] == "awaiting_chat_id":
             chat_id = message.text.strip()
-            accounts = get_accounts_by_status("healthy")
+            accounts = await get_accounts_by_status("healthy")
             if not accounts:
                 await message.reply("❌ اکانت سالمی برای آنالیز وجود ندارد.")
                 return
@@ -294,7 +378,7 @@ async def handle_text(client, message: Message):
                 return
 
             invite_hash = match.group(1) or match.group(2)
-            accounts = get_accounts_by_status("healthy")
+            accounts = await get_accounts_by_status("healthy")
             if not accounts:
                 await message.reply("❌ اکانت سالمی برای آنالیز وجود ندارد.")
                 return
@@ -323,7 +407,15 @@ async def handle_text(client, message: Message):
             await helper.stop()
             del user_states[user_id]
 
-# ---------------------- اجرای اولیه ----------------------
-initialize_db()
-initialize_group_table()
-bot.run()
+# ---------------------- اجرای اصلی ----------------------
+
+async def main():
+    await init_db()
+    await bot.start()
+    print("✅ ربات آماده است")
+    await idle()
+
+if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
