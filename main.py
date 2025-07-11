@@ -1,4 +1,6 @@
 import os
+import re
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PhoneNumberInvalid, FloodWait
@@ -44,6 +46,14 @@ def groups_menu():
         [InlineKeyboardButton("➕ افزودن گروه جدید", callback_data="add_group")],
         [InlineKeyboardButton("❌ حذف گروه", callback_data="remove_group")],
         [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="back_main")]
+    ])
+
+def analyze_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👥 آنالیز اعضای چت", callback_data="analyze_chat")],
+        [InlineKeyboardButton("🔊 آنالیز اعضای ویسکال", callback_data="analyze_voice")],
+        [InlineKeyboardButton("📊 آنالیز پیشرفته", callback_data="analyze_advanced")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]
     ])
 
 # ---------------------- /start فقط برای مالک ----------------------
@@ -152,6 +162,17 @@ async def callback_handler(client, query):
         delete_group(group_name)
         await query.message.edit(f"✅ گروه '{group_name}' با موفقیت حذف شد.", reply_markup=groups_menu())
 
+    elif data == "analyze":
+        await query.message.edit("🔍 انتخاب نوع آنالیز:", reply_markup=analyze_menu())
+
+    elif data == "analyze_chat":
+        await query.message.edit("👥 لطفاً آیدی گروه (مثلاً -1001234567890) را ارسال کنید:")
+        user_states[query.from_user.id] = {"step": "awaiting_chat_id"}
+
+    elif data == "analyze_voice":
+        await query.message.edit("🔊 لطفاً لینک گروه دارای ویسکال را ارسال کنید:")
+        user_states[query.from_user.id] = {"step": "awaiting_voice_link"}
+
     elif data == "back_main":
         await query.message.edit("بازگشت به منوی اصلی:", reply_markup=main_buttons)
 
@@ -160,6 +181,7 @@ async def callback_handler(client, query):
 async def handle_text(client, message: Message):
     user_id = message.from_user.id
 
+    # مدیریت افزودن گروه جدید
     if user_id in group_states:
         state = group_states[user_id]
         if state["step"] == "awaiting_new_group":
@@ -168,6 +190,7 @@ async def handle_text(client, message: Message):
             await message.reply(f"✅ گروه '{group_name}' با موفقیت افزوده شد.")
             del group_states[user_id]
 
+    # مدیریت مراحل مختلف کاربر
     elif user_id in user_states:
         state = user_states[user_id]
 
@@ -238,6 +261,67 @@ async def handle_text(client, message: Message):
             finally:
                 await helper.disconnect()
                 del user_states[user_id]
+
+        # افزودن مراحل جدید آنالیز
+        elif state["step"] == "awaiting_chat_id":
+            chat_id = message.text.strip()
+            accounts = get_accounts_by_status("healthy")
+            if not accounts:
+                await message.reply("❌ اکانت سالمی برای آنالیز وجود ندارد.")
+                return
+
+            phone = accounts[0]['phone']
+            session = f"sessions/{phone}"
+            helper = Client(session, config.API_ID, config.API_HASH)
+            await helper.start()
+
+            usernames = set()
+            async for msg in helper.get_chat_history(int(chat_id), limit=1000):
+                if msg.from_user and msg.from_user.username:
+                    usernames.add(msg.from_user.username)
+
+            result = '\n'.join([f"@{u}" for u in usernames]) or "هیچ یوزرنیمی یافت نشد."
+            await client.send_message(config.LOG_GROUP_ID, f"👥 لیست اعضای فعال در چت گروه {chat_id}:\n{result}")
+            await message.reply("✅ لیست در گروه گزارشات ارسال شد.")
+            await helper.stop()
+            del user_states[user_id]
+
+        elif state["step"] == "awaiting_voice_link":
+            link = message.text.strip()
+            match = re.search(r"t\.me\/joinchat\/([\w\d_-]+)|t\.me\/\+([\w\d_-]+)", link)
+            if not match:
+                await message.reply("❌ لینک گروه نامعتبر است.")
+                return
+
+            invite_hash = match.group(1) or match.group(2)
+            accounts = get_accounts_by_status("healthy")
+            if not accounts:
+                await message.reply("❌ اکانت سالمی برای آنالیز وجود ندارد.")
+                return
+
+            phone = accounts[0]['phone']
+            session = f"sessions/{phone}"
+            helper = Client(session, config.API_ID, config.API_HASH)
+            await helper.start()
+
+            try:
+                chat = await helper.join_chat(invite_hash)
+            except Exception as e:
+                await message.reply(f"❌ خطا در ورود به گروه: {e}")
+                await helper.stop()
+                return
+
+            try:
+                call = await helper.get_group_call(chat.id)
+                users = [f"@{p.user.username}" for p in call.participants if p.user and p.user.username]
+                report = '\n'.join(users) or "هیچ کاربری در ویسکال نیست."
+                await client.send_message(config.LOG_GROUP_ID, f"🔊 اعضای حاضر در ویسکال گروه {chat.title}:\n{report}")
+                await message.reply("✅ لیست ویسکال در گروه گزارشات ارسال شد.")
+            except Exception as e:
+                await message.reply(f"❌ خطا در گرفتن ویسکال: {e}")
+
+            await helper.stop()
+            del user_states[user_id]
 
 # ---------------------- اجرای اولیه ----------------------
 initialize_db()

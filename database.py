@@ -27,7 +27,7 @@ def initialize_db():
     """)
     conn.commit()
     conn.close()
-    initialize_group_table()  # ایجاد جدول گروه‌ها نیز همزمان
+    initialize_group_table()  # همزمان جدول گروه‌ها را هم ایجاد کن
 
 def get_accounts_by_status(status: str) -> List[Dict]:
     conn = get_connection()
