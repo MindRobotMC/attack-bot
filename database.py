@@ -77,20 +77,10 @@ def update_account_status(phone: str, status: str):
     conn.close()
 
 def get_reported_accounts() -> List[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM accounts WHERE status = 'reported'")
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    return get_accounts_by_status("reported")
 
 def get_recovering_accounts() -> List[Dict]:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM accounts WHERE status = 'recovering'")
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    return get_accounts_by_status("recovering")
 
 def account_exists(phone: str) -> bool:
     conn = get_connection()
@@ -104,5 +94,16 @@ def update_ready_time(phone: str, ready_time: str):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE accounts SET ready_time = ? WHERE phone = ?", (ready_time, phone))
+    conn.commit()
+    conn.close()
+
+def update_report_info(phone: str, duration: Optional[int], end_time: Optional[str]):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE accounts 
+        SET report_duration = ?, report_end_time = ?
+        WHERE phone = ?
+    """, (duration, end_time, phone))
     conn.commit()
     conn.close()

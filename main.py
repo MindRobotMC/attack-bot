@@ -37,7 +37,7 @@ def account_menu():
         [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="back_main")]
     ])
 
-# ---------------------- استارت فقط برای مالک ----------------------
+# ---------------------- /start فقط برای مالک ----------------------
 @bot.on_message(filters.command("start") & filters.user(OWNER_ID))
 async def start_owner(client, message):
     await message.reply("به منوی اصلی خوش آمدید:", reply_markup=main_buttons)
@@ -89,6 +89,10 @@ async def callback_handler(client, query):
             text += f"نام: {acc['name']}\nشماره: {acc['phone']}\nآماده در: {ready_time}\n\n"
         await query.message.edit(text, reply_markup=account_menu())
 
+    elif data == "acc_add":
+        await query.message.edit("📲 لطفاً شماره اکانت را وارد کنید (با 98 شروع شود):")
+        user_states[query.from_user.id] = {"step": "awaiting_phone"}
+
     elif data == "acc_remove":
         accounts = get_all_accounts()
         if not accounts:
@@ -103,6 +107,15 @@ async def callback_handler(client, query):
         phone = data.split("delete_")[1]
         delete_account(phone)
         await query.message.edit(f"✅ اکانت {phone} با موفقیت حذف شد.", reply_markup=account_menu())
+
+        # ارسال گزارش حذف اکانت به گروه لاگ
+        try:
+            await bot.send_message(
+                config.LOG_GROUP_ID,
+                f"❌ اکانت حذف شد:\n📞 {phone}"
+            )
+        except Exception as e:
+            print(f"خطا در ارسال لاگ حذف اکانت: {e}")
 
     elif data == "acc_logs":
         await query.message.edit("📄 بخش لاگ‌ها به‌زودی اضافه می‌شود...", reply_markup=account_menu())
@@ -174,6 +187,16 @@ async def handle_add_account(client, message: Message):
             })
 
             await message.reply(f"✅ اکانت با موفقیت افزوده شد:\nنام: {name}\nیوزرنیم: @{username}")
+
+            # ارسال گزارش ثبت اکانت به گروه لاگ
+            try:
+                await bot.send_message(
+                    config.LOG_GROUP_ID,
+                    f"📥 اکانت جدید ثبت شد:\n👤 {name}\n📞 {phone}\n🔗 @{username}"
+                )
+            except Exception as e:
+                print(f"خطا در ارسال لاگ ثبت اکانت: {e}")
+
         except PhoneCodeInvalid:
             await message.reply("❌ کد اشتباه است.")
             return
