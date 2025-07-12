@@ -1,39 +1,36 @@
-# Ignore config file with sensitive data
-config.py
+# پوشه جلسات تلگرام (session files)
+sessions/
 
-# Ignore Pyrogram session files
-*.session
-*.session-journal
-
-# Python cache files
+# فایل‌های pycache پایتون
 __pycache__/
 *.py[cod]
 
-# Log files
+# فایل تنظیمات محیط (اگر داری)
+.env
+.env.*
+
+# فایل دیتابیس SQLite (اگر استفاده کنی)
+*.db
+*.sqlite3
+
+# فایل‌های لاگ
 *.log
 
-# Temporary files
-*.tmp
-*.temp
+# فایل‌های کامپایل شده پایتون
+*.pyc
 
-# Virtual environment folder (اگر داری)
+# پوشه venv یا env اگر محیط مجازی داری
 venv/
 env/
-.venv/
 
-# Byte-compiled / optimized / DLL files
-*.pyc
-*.pyo
-*.pyd
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# IDE files (اختیاری، برای بعضی ادیتورها)
+# فایل‌های تنظیمات IDE (اختیاری، بسته به IDE شما)
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
+
+# فایل‌های پوشه build یا dist (اگر پکیج‌سازی می‌کنی)
+build/
+dist/
+
+# فایل‌های موقت سیستم‌عامل
+.DS_Store
+Thumbs.db
